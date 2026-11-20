@@ -42,7 +42,32 @@ film.camera.key("azimuth", 0, -70).key("azimuth", 12, -20, ease="linear")
 ```
 
 `key(property, time, value, ease)` adds or replaces a keyframe. `value=None` keys the current value. Eases:
-`linear`, `smooth` (default), `smoother`, `in`, `out`, `in_out`, `overshoot`, `sine`, `hold`.
+`linear`, `smooth` (default), `smoother`, `in`, `out`, `in_out`, `overshoot`, `sine`, `hold`, and `bezier`
+for a curve of your own, given like CSS `cubic-bezier()`:
+
+```python
+dot.key("x", 7.0, 4.0, ease="bezier", bez=(0.3, 1.5, 0.6, 1.0))   # overshoots, then settles
+```
+
+## Groups
+
+```python
+panel = film.add("panel", position=(80, 170), size=(520, 650), title="Gray level")
+ax = film.add("axes", position=(170, 270), size=(380, 420))
+step = film.group([panel, ax], name="Step 1", pivot=(80, 170))
+step.key("opacity", 6.0, 1.0).key("opacity", 7.0, 0.45)            # fade the whole step back
+step.key("scale", 8.0, 1.0).key("scale", 9.0, 0.6)                 # and shrink it about its corner
+
+rig = film.group([source, sample, detector], name="Beamline")      # 3D objects
+rig.key("rotation", 0, (0, 0, 0)).key("rotation", 10, (0, 0, 90))  # turn the whole instrument
+```
+
+A group moves 2D members by `offset` and scales them by `scale` about `pivot` (pixels); it rotates 3D
+members by `rotation` (degrees about x, then y, then z) and scales them about `pivot3d`, then moves them by
+`position` (scene units). Its opacity, enter/exit effects and `start`/`end` apply to every member. Groups
+nest. `film.ungroup(group)` dissolves one; `film.remove(group)` removes it with its members
+(`members=False` keeps them); `film.children(g)`, `film.descendants(g)` and `film.ancestors(obj)` walk the
+tree. Membership is the `parent` attribute of each object, which you can also set yourself.
 
 ## Charts from data
 

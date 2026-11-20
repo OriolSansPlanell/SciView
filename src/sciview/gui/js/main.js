@@ -1,15 +1,20 @@
 // Entry point: wires the library, preview, timeline, inspector, transport and shortcuts together.
 import {
   S, on, emit, commit, objById, schemaOf, applyState, requestFrame, undo, redo, canUndo, canRedo,
-  duration, fps, frameDt, isAnimated, setKey, valueAt, keyIndexAt,
+  duration, fps, frameDt, setKey, valueAt, keyIndexAt, select, isGroup,
 } from './state.js';
+import {
+  groupSelection, ungroup, removeSelected, duplicateSelected, copySelection, cutSelection, pasteText, lastCopied,
+} from './actions.js';
 import { api } from './api.js';
 import { el, toast, fmtTime, clamp, modalOpen } from './ui.js';
 import { icon, hydrateIcons } from './icons.js';
-import { renderInspector, refreshInspector, addObject, duplicate, removeObject } from './inspector.js';
+import { renderInspector, refreshInspector, addObject } from './inspector.js';
 import { renderTimeline, placePlayhead, ensurePlayheadVisible, deleteSelectedKey, fit } from './timeline.js';
 import { layoutViewport, drawOverlay } from './viewport.js';
-import { newFilmDialog, openDialog, save, saveAsDialog, exportDialog, helpDialog, issuesDialog } from './dialogs.js';
+import {
+  newFilmDialog, openDialog, save, saveAsDialog, exportDialog, helpDialog, issuesDialog, recoveryDialog,
+} from './dialogs.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -120,6 +125,7 @@ $('btnLoop').addEventListener('click', () => {
   S.loop = !S.loop;
   $('btnLoop').setAttribute('aria-pressed', String(S.loop));
 });
+$('timeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === 'Escape') e.target.blur(); });
 $('timeInput').addEventListener('change', (e) => {
   const v = parseFloat(e.target.value);
   if (Number.isFinite(v)) setTime(v); else e.target.value = fmtTime(S.time);
@@ -135,10 +141,11 @@ $('btnSnap').addEventListener('click', () => {
 
 // ------------------------------------------------------------------ events between panels
 on('seek', (t) => setTime(t));
-on('select', (id) => {
-  if (S.selected === id) return;
-  S.selected = id;
-  if (!S.selKey || S.selKey.id !== id) S.selKey = null;
+let lastSelection = '';
+on('selection', () => {
+  const key = `${S.selected}|${S.selection.join(',')}`;
+  if (key === lastSelection) return;
+  lastSelection = key;
   renderInspector();
   renderTimeline();
   drawOverlay();
@@ -169,11 +176,16 @@ on('loaded', () => {
 });
 
 function updateIssues() {
-  const n = new Set([...S.issues, ...S.warnings]).size;
+  const n = new Set([...S.problems.map((p) => p.message), ...S.warnings]).size;
   $('issues').hidden = n === 0;
   $('btnIssues').textContent = n === 1 ? '1 thing to check' : `${n} things to check`;
 }
-on('frame', (r) => { $('renderMs').textContent = `${Math.round(r.ms)} ms`; });
+let lastFrameIssues = '';
+on('frame', (r) => {
+  $('renderMs').textContent = `${Math.round(r.ms)} ms${r.cached ? ' (cached)' : ''}`;
+  const key = JSON.stringify(r.issues || []);
+  if (key !== lastFrameIssues) { lastFrameIssues = key; renderTimeline(); }
+});
 
 // ------------------------------------------------------------------ keyboard
 function keyAll() {
@@ -195,22 +207,92 @@ document.addEventListener('keydown', (e) => {
   if (mod && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
   if (mod && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); return; }
   if (typing || modalOpen()) return;
-  if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicate(S.selected); return; }
+  const key = e.key.toLowerCase();
+  if (mod && key === 'd') { e.preventDefault(); duplicateSelected(); return; }
+  if (mod && key === 'g') {
+    e.preventDefault();
+    if (e.shiftKey) ungroup();
+    else if (S.selection.length > 1 || (S.selected && S.selected !== 'camera' && !isGroup(objById(S.selected)))) groupSelection();
+    else if (isGroup(objById(S.selected))) toast('Select two or more objects to group them, or press Ctrl+Shift+G to ungroup.');
+    return;
+  }
+  if (mod && (key === 'c' || key === 'x' || key === 'v') && !e.shiftKey && !e.altKey) { keyClipboard(e, key); return; }
+  if (mod && key === 'a') {
+    e.preventDefault();
+    select(null);
+    for (const o of [...S.project.objects].reverse()) if (!o.parent || !objById(o.parent)) select(o.id, 'add');
+    return;
+  }
   switch (e.key) {
     case ' ': e.preventDefault(); togglePlay(); break;
     case 'ArrowLeft': e.preventDefault(); setTime(S.time - (e.shiftKey ? 1 : frameDt())); break;
     case 'ArrowRight': e.preventDefault(); setTime(S.time + (e.shiftKey ? 1 : frameDt())); break;
     case 'Home': setTime(0); break;
     case 'End': setTime(duration()); break;
-    case 'Escape': emit('select', null); break;
+    case 'Escape': {
+      // first leave the group the selection is in, then clear it
+      const o = objById(S.selected);
+      if (S.selection.length === 1 && o && o.parent && isGroup(objById(o.parent))) select(o.parent);
+      else select(null);
+      break;
+    }
     case 'Delete':
     case 'Backspace':
-      if (!deleteSelectedKey()) removeObject(S.selected);
+      if (!deleteSelectedKey()) removeSelected();
       break;
     case 'k': case 'K': keyAll(); break;
     case '?': helpDialog(); break;
     default: break;
   }
+});
+
+// ------------------------------------------------------------------ clipboard
+// The copy/cut/paste events carry the system clipboard. Some browsers (Safari, headless ones) do not
+// fire them when no text is selected, so the shortcuts also act from keydown, with the last copy
+// kept in memory as a fallback.
+const editingText = () => {
+  const t = document.activeElement;
+  const tag = (t && t.tagName || '').toLowerCase();
+  return ['input', 'textarea', 'select'].includes(tag) || (t && t.isContentEditable) || modalOpen()
+    || (window.getSelection && String(window.getSelection()).length > 0);
+};
+let keyCopyAt = 0;
+let pasteTimer = null;
+let copiedText = null;
+function keyClipboard(e, key) {
+  if (key === 'c' || key === 'x') {
+    const ok = key === 'c' ? copySelection(null) : cutSelection(null);
+    if (!ok) return;
+    keyCopyAt = performance.now();
+    copiedText = lastCopied();
+    if (navigator.clipboard && copiedText) navigator.clipboard.writeText(copiedText).catch(() => {});
+  } else if (key === 'v') {
+    clearTimeout(pasteTimer);
+    pasteTimer = setTimeout(() => { pasteTimer = null; pasteText(null); }, 80);   // no paste event came
+  }
+}
+document.addEventListener('copy', (e) => {
+  if (editingText()) return;
+  if (performance.now() - keyCopyAt < 500) {
+    if (copiedText && e.clipboardData) { e.clipboardData.setData('text/plain', copiedText); e.preventDefault(); }
+    return;
+  }
+  if (copySelection(e.clipboardData)) e.preventDefault();
+});
+document.addEventListener('cut', (e) => {
+  if (editingText()) return;
+  if (performance.now() - keyCopyAt < 500) {
+    if (copiedText && e.clipboardData) { e.clipboardData.setData('text/plain', copiedText); e.preventDefault(); }
+    return;
+  }
+  if (cutSelection(e.clipboardData)) e.preventDefault();
+});
+document.addEventListener('paste', (e) => {
+  if (editingText()) return;
+  clearTimeout(pasteTimer);
+  pasteTimer = null;
+  const text = e.clipboardData ? e.clipboardData.getData('text/plain') : null;
+  if (pasteText(text || null)) e.preventDefault();
 });
 
 window.addEventListener('beforeunload', (e) => {
@@ -247,7 +329,8 @@ async function start() {
     return;
   }
   emit('loaded');
-  if (S.untitled && S.project.objects.length === 0) newFilmDialog({ first: true });
+  if (S.recovery) recoveryDialog();
+  else if (S.untitled && S.project.objects.length === 0) newFilmDialog({ first: true });
 }
 
 start();

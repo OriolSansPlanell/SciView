@@ -1,5 +1,8 @@
 // Preview: shows rendered frames, selection outlines, drag-to-move for 2D objects and camera orbit.
-import { S, on, emit, commit, objById, schemaOf, valueAt, setValue } from './state.js';
+import {
+  S, on, emit, commit, objById, schemaOf, valueAt, setValue, select, isSelected, ancestors,
+} from './state.js';
+import { movePlan, applyMove } from './actions.js';
 import { addObject } from './inspector.js';
 import { api } from './api.js';
 import { toast, drag } from './ui.js';
@@ -28,6 +31,7 @@ export function layoutViewport() {
 }
 
 const designToCss = () => wrap.clientWidth / (S.project.settings.width || 1920);
+let marquee = null;   // {x0, y0, x1, y1} in design px while box-selecting
 
 export function drawOverlay() {
   const g = overlay.getContext('2d');
@@ -36,29 +40,49 @@ export function drawOverlay() {
   g.clearRect(0, 0, overlay.width, overlay.height);
   if (!S.project) return;
   const k = designToCss() * dpr;
-  const box = (b, color, dash, w) => {
+  const box = (b, color, dash, w, pad = 4) => {
     g.save();
     g.strokeStyle = color;
     g.lineWidth = w * dpr;
     g.setLineDash(dash.map((d) => d * dpr));
-    const pad = 4 * dpr;
-    g.strokeRect(b.x0 * k - pad, b.y0 * k - pad, (b.x1 - b.x0) * k + 2 * pad, (b.y1 - b.y0) * k + 2 * pad);
+    const p = pad * dpr;
+    g.strokeRect(b.x0 * k - p, b.y0 * k - p, (b.x1 - b.x0) * k + 2 * p, (b.y1 - b.y0) * k + 2 * p);
     g.restore();
   };
-  if (hover && hover !== S.selected) {
+  if (hover && !isSelected(hover)) {
     const b = S.boxes.find((x) => x.id === hover);
     if (b) box(b, 'rgba(226,232,243,.35)', [], 1);
   }
-  const sb = S.boxes.find((x) => x.id === S.selected);
-  if (sb) box(sb, '#4fd1c5', [5, 4], 1.5);
+  for (const id of S.selection) {
+    const b = S.boxes.find((x) => x.id === id);
+    if (!b) continue;
+    const primary = id === S.selected;
+    if (b.group) box(b, '#4fd1c5', [2, 4], primary ? 1.5 : 1, 10);
+    else box(b, primary ? '#4fd1c5' : 'rgba(79,209,197,.6)', [5, 4], primary ? 1.5 : 1);
+  }
+  if (marquee) {
+    g.save();
+    g.fillStyle = 'rgba(79,209,197,.08)';
+    g.strokeStyle = '#4fd1c5';
+    g.lineWidth = dpr;
+    const x = Math.min(marquee.x0, marquee.x1) * k, y = Math.min(marquee.y0, marquee.y1) * k;
+    const w = Math.abs(marquee.x1 - marquee.x0) * k, h = Math.abs(marquee.y1 - marquee.y0) * k;
+    g.fillRect(x, y, w, h);
+    g.strokeRect(x, y, w, h);
+    g.restore();
+  }
+}
+
+function designPoint(e) {
+  const r = overlay.getBoundingClientRect();
+  const k = designToCss();
+  return [(e.clientX - r.left) / k, (e.clientY - r.top) / k];
 }
 
 function hit(e) {
-  const r = overlay.getBoundingClientRect();
-  const k = designToCss();
-  const x = (e.clientX - r.left) / k, y = (e.clientY - r.top) / k;
-  // last drawn = top-most; prefer the smallest box among overlapping ones for precision
-  const hits = S.boxes.filter((b) => x >= b.x0 - 4 && x <= b.x1 + 4 && y >= b.y0 - 4 && y <= b.y1 + 4);
+  const [x, y] = designPoint(e);
+  // members, not their group boxes; prefer 2D (drawn on top), then the smallest box
+  const hits = S.boxes.filter((b) => !b.group && x >= b.x0 - 4 && x <= b.x1 + 4 && y >= b.y0 - 4 && y <= b.y1 + 4);
   if (!hits.length) return null;
   const top2d = hits.filter((b) => { const o = objById(b.id); return o && !schemaOf(o).is3d; });
   const pool = top2d.length ? top2d : hits;
@@ -66,55 +90,92 @@ function hit(e) {
   return pool[0].id;
 }
 
-function movableProps(o) {
-  const names = schemaOf(o).props.filter((p) => p.kind === 'vec2').map((p) => p.name);
-  if (names.includes('position')) return ['position'];
-  if (o.type === 'ellipse') return ['center'];
-  if (o.type === 'arrow') return ['tail', 'tip'];
-  return [];
+/**
+ * The object a click on ``id`` acts on. A click on a grouped object picks its outermost group,
+ * unless the object or one of its groups is already selected, or the selection is already
+ * inside one of those groups (then it stays at that level). Double-click goes one level in.
+ */
+function target(id) {
+  const o = id ? objById(id) : null;
+  if (!o) return null;
+  const chain = [o, ...ancestors(o)];               // nearest first
+  const sel = chain.find((x) => isSelected(x.id));
+  if (sel) return sel.id;
+  const cur = objById(S.selected);
+  const ctx = cur && cur.parent ? objById(cur.parent) : null;
+  if (ctx) {
+    const i = chain.findIndex((x) => x.id === ctx.id);
+    if (i > 0) return chain[i - 1].id;
+  }
+  return chain[chain.length - 1].id;
 }
 
-function dataScale(o) {
-  const ref = valueAt(o, 'axes', S.time);
-  if (!ref) return [1, 1];
-  const ax = objById(ref);
-  if (!ax) return [1, 1];
-  const xr = valueAt(ax, 'x_range', S.time), yr = valueAt(ax, 'y_range', S.time), sz = valueAt(ax, 'size', S.time);
-  return [(xr[1] - xr[0]) / sz[0], -(yr[1] - yr[0]) / sz[1]];
-}
+overlay.addEventListener('dblclick', (e) => {
+  const h = hit(e);
+  if (!h) return;
+  const chain = [objById(h), ...ancestors(objById(h))];
+  const i = chain.findIndex((x) => isSelected(x.id));
+  select(i > 0 ? chain[i - 1].id : h);
+});
 
 overlay.addEventListener('pointermove', (e) => {
   if (dragging) return;
-  const h = hit(e);
+  const h = target(hit(e));
   if (h !== hover) { hover = h; drawOverlay(); }
-  const o = h && objById(h);
-  overlay.className = o && !schemaOf(o).is3d && movableProps(o).length ? 'move' : 'grab';
+  overlay.className = h ? 'move' : 'grab';
 });
 overlay.addEventListener('pointerleave', () => { hover = null; drawOverlay(); });
 
 overlay.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
-  const id = hit(e);
-  const o = id && objById(id);
   const k = designToCss();
-  if (o && !schemaOf(o).is3d && movableProps(o).length && !o.locked) {
-    emit('select', id);
-    const props = movableProps(o);
-    const start = Object.fromEntries(props.map((p) => [p, [...valueAt(o, p, S.time)]]));
-    const [sx, sy] = dataScale(o);
-    const tag = `vp-${id}-${Date.now()}`;
+  const id = target(hit(e));
+  // Ctrl/Cmd + drag on empty space: box selection
+  if (!id && (e.ctrlKey || e.metaKey)) {
+    const [x0, y0] = designPoint(e);
+    marquee = { x0, y0, x1: x0, y1: y0 };
+    const before = [...S.selection].filter((x) => x !== 'camera');
     dragging = true;
-    drag(e, (dx, dy, ev) => {
-      let ddx = dx / k, ddy = dy / k;
-      if (ev.shiftKey) { if (Math.abs(ddx) > Math.abs(ddy)) ddy = 0; else ddx = 0; }
-      commit(() => {
-        const x = objById(id);
-        for (const p of props) setValue(x, p, [Math.round((start[p][0] + ddx * sx) * 100) / 100, Math.round((start[p][1] + ddy * sy) * 100) / 100]);
-      }, { coalesce: tag, source: 'viewport' });
-    }, () => { dragging = false; });
+    drag(e, (_dx, _dy, ev) => {
+      [marquee.x1, marquee.y1] = designPoint(ev);
+      drawOverlay();
+    }, () => {
+      dragging = false;
+      const mx0 = Math.min(marquee.x0, marquee.x1), mx1 = Math.max(marquee.x0, marquee.x1);
+      const my0 = Math.min(marquee.y0, marquee.y1), my1 = Math.max(marquee.y0, marquee.y1);
+      marquee = null;
+      const picked = S.boxes.filter((b) => !b.group && b.x1 >= mx0 && b.x0 <= mx1 && b.y1 >= my0 && b.y0 <= my1)
+        .map((b) => target(b.id)).filter((x, i, arr) => arr.indexOf(x) === i);
+      select(null);
+      for (const pid of [...before, ...picked]) select(pid, 'add');
+      drawOverlay();
+    });
     return;
   }
-  // 3D object or empty space: click selects / deselects, drag orbits the camera (Shift: shift the view)
+  if (id && !e.altKey) {
+    // Shift: a click adds or removes the object, a drag moves along one axis
+    const wasSelected = isSelected(id);
+    if (!e.shiftKey && !wasSelected) select(id);
+    const ids = e.shiftKey && !wasSelected ? [...S.selection, id] : [...S.selection];
+    const plan = movePlan(ids);
+    const tag = `vp-${Date.now()}`;
+    dragging = true;
+    drag(e, (dx, dy, ev) => {
+      if (!plan.length) return;
+      let ddx = dx / k, ddy = dy / k;
+      const lock = ev.shiftKey;
+      if (lock) { if (Math.abs(ddx) > Math.abs(ddy)) ddy = 0; else ddx = 0; }
+      commit(() => {
+        for (const m of plan) applyMove(m, m.kind === '2d' ? ddx : dx / k, m.kind === '2d' ? ddy : dy / k, lock);
+      }, { coalesce: tag, source: 'viewport' });
+    }, (moved) => {
+      dragging = false;
+      if (e.shiftKey && !moved) select(id, 'toggle');
+      else if (e.shiftKey && !wasSelected) select(id, 'add');
+    });
+    return;
+  }
+  // empty space (or Alt): click clears the selection, drag orbits the camera (Shift: shift the view)
   const cam = S.project.camera;
   const az0 = valueAt(cam, 'azimuth', S.time), el0 = valueAt(cam, 'elevation', S.time);
   const off0 = [...valueAt(cam, 'offset', S.time)];
@@ -133,7 +194,7 @@ overlay.addEventListener('pointerdown', (e) => {
     }, { coalesce: tag, source: 'viewport' });
   }, (moved) => {
     dragging = false;
-    if (!moved) emit('select', id || null);
+    if (!moved && !e.altKey) select(null);
   });
 });
 
@@ -146,15 +207,16 @@ overlay.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 // ------------------------------------------------------------------ frames
+let lastUrl = null;
 on('frame', (r) => {
   img.src = r.image;
-  S.boxes = r.boxes || [];
-  S.warnings = r.warnings || [];
+  if (lastUrl) URL.revokeObjectURL(lastUrl);
+  lastUrl = r.image;
   emit('warnings');
   drawOverlay();
 });
 on('busy', (b) => { busy.hidden = !b; });
-on('select', () => drawOverlay());
+on('selection', () => drawOverlay());
 
 // ------------------------------------------------------------------ drop files
 let dragDepth = 0;

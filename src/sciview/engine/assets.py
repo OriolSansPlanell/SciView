@@ -107,6 +107,13 @@ class AssetStore:
         key = self._key("mesh", rel)
         return self._cached(key, lambda: load_mesh(self.resolve(rel)))
 
+    def stamp(self, rel: str) -> int:
+        """Modification time of a file (0 if missing): part of cache keys derived from it."""
+        try:
+            return self.resolve(rel).stat().st_mtime_ns
+        except OSError:
+            return 0
+
     def memo(self, key: tuple, factory):
         """Cache any derived object (particle tables, colormapped images ...)."""
         return self._cached(("memo",) + key, factory)

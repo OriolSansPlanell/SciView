@@ -1,9 +1,13 @@
 // Right-hand panel: properties of the selected object, the camera, or the film.
 import {
   S, on, emit, commit, objById, schemaOf, valueAt, isAnimated, keyIndexAt, setValue, setKey, removeKey,
-  colorCss, fps, duration, EASINGS, uniqueId, span,
+  colorCss, duration, EASINGS, BEZIER_PRESETS, cubicBezier, uniqueId, select, isGroup, children, descendants,
+  issuesFor,
 } from './state.js';
-import { el, iconEl, toast, popover, closePopover, round, drag, fmtTime } from './ui.js';
+import {
+  groupSelection, ungroup, align, distribute, stagger, removeSelected, duplicateSelected, setParent, topSelected,
+} from './actions.js';
+import { el, toast, popover, closePopover, round, drag, fmtTime } from './ui.js';
 import { icon } from './icons.js';
 import { api } from './api.js';
 
@@ -16,17 +20,53 @@ const EFFECT_LABEL = {
   slide_right: 'Slide right', pop: 'Pop', draw: 'Draw on', typewriter: 'Type on',
 };
 
+let rowsByProp = new Map();
+let issueBox = null;
+let issueKey = '';
+
 export function renderInspector() {
   closePopover();
   root.innerHTML = '';
   syncers = [];
+  rowsByProp = new Map();
+  issueBox = null;
+  issueKey = '';
+  const many = S.selection.filter((id) => id !== 'camera' && objById(id));
   const obj = objById(S.selected);
-  if (!obj) renderFilm();
+  if (many.length > 1) renderMulti(many.map(objById));
+  else if (!obj) renderFilm();
   else renderObject(obj);
+  syncIssues();
 }
 
 export function refreshInspector() {
   for (const f of syncers) f();
+}
+
+/** Show the selected object's problems in the header and under the fields they concern. */
+export function syncIssues() {
+  const id = S.selection.length === 1 ? S.selected : null;
+  const list = id && id !== 'camera' ? issuesFor(id) : [];
+  const key = JSON.stringify(list.map((p) => [p.prop, p.message]));
+  if (key === issueKey) return;
+  issueKey = key;
+  for (const [, row] of rowsByProp) {
+    row.classList.remove('has-issue');
+    row.querySelector('.field-issue')?.remove();
+  }
+  if (issueBox) {
+    issueBox.innerHTML = '';
+    issueBox.hidden = !list.length;
+    for (const p of list) {
+      issueBox.append(el('div', { class: 'issue' }, el('span', { class: 'ic', html: icon('warning') }), el('span', {}, p.message)));
+    }
+  }
+  for (const p of list) {
+    const row = p.prop && rowsByProp.get(p.prop);
+    if (!row) continue;
+    row.classList.add('has-issue');
+    if (!row.querySelector('.field-issue')) row.append(el('div', { class: 'field-issue', role: 'note' }, p.message));
+  }
 }
 
 // ------------------------------------------------------------------ bindings
@@ -61,7 +101,10 @@ function renderObject(obj) {
   });
   root.append(el('div', { class: 'insp-head' }, el('span', { class: 'lib-icon', html: icon(sc.icon) }), nameInput));
   root.append(el('div', { class: 'insp-type' }, isCam ? 'Drag in the preview to orbit, scroll to zoom. Keyframe the values to move the camera.' : sc.description || sc.label));
+  issueBox = el('div', { class: 'insp-issues', role: 'status', hidden: true });
+  root.append(issueBox);
 
+  if (isGroup(obj)) root.append(membersGroup(obj));
   if (!isCam) root.append(timingGroup(obj, sc));
 
   const groups = [];
@@ -72,7 +115,11 @@ function renderObject(obj) {
   }
   for (const g of groups) {
     const body = el('div', { class: 'group-body' });
-    for (const p of g.props) body.append(makeRow(p, objBinding(id, p.name)));
+    for (const p of g.props) {
+      const row = makeRow(p, objBinding(id, p.name));
+      rowsByProp.set(p.name, row);
+      body.append(row);
+    }
     root.append(group(g.name, body));
   }
 
@@ -81,11 +128,96 @@ function renderObject(obj) {
 
   if (!isCam) {
     root.append(el('div', { class: 'insp-actions' },
+      isGroup(obj) ? el('button', { class: 'btn', onclick: () => ungroup([id]), title: 'Ungroup (Ctrl+Shift+G)' }, 'Ungroup') : null,
       el('button', { class: 'btn', onclick: () => duplicate(id), title: 'Duplicate (Ctrl+D)' }, 'Duplicate'),
       el('button', { class: 'btn', onclick: () => move(id, -1), title: 'Draw above the object before it' }, 'Bring forward'),
       el('button', { class: 'btn', onclick: () => move(id, 1) }, 'Send back'),
       el('button', { class: 'btn danger', onclick: () => removeObject(id), title: 'Delete (Del)' }, 'Delete')));
   }
+}
+
+function membersGroup(g) {
+  const list = el('div', { class: 'members' });
+  const kids = children(g.id).reverse();
+  for (const c of kids) {
+    const csc = schemaOf(c);
+    list.append(el('button', { class: 'member', onclick: () => select(c.id), title: `Select ${c.name}` },
+      el('span', { class: 'ic', html: icon(csc ? csc.icon : 'square') }), el('span', {}, c.name || c.id)));
+  }
+  if (!kids.length) list.append(el('div', { class: 'help' }, 'This group is empty. Move objects into it with “In group” in their Timing section.'));
+  return group('Members', el('div', { class: 'group-body' }, list,
+    el('div', { class: 'help' }, 'The group moves, scales, fades and times all of its members together. Double-click a member in the preview to select it.')));
+}
+
+// ------------------------------------------------------------------ several objects
+function renderMulti(objs) {
+  const tops = topSelected();
+  const types = new Set(objs.map((o) => o.type));
+  root.append(el('div', { class: 'insp-head' }, el('span', { class: 'lib-icon', html: icon('group') }),
+    el('span', { class: 'insp-title' }, `${objs.length} objects selected`)));
+  root.append(el('div', { class: 'insp-type' }, 'Shift-click to add or remove objects. Changes below apply to all of them.'));
+
+  const btn = (label, ic, fn, title) => el('button', { class: 'btn icon-label', onclick: fn, title: title || label },
+    el('span', { class: 'ic', html: icon(ic) }), label);
+  const arrange = el('div', { class: 'group-body arrange' },
+    el('div', { class: 'btn-row', role: 'group', 'aria-label': 'Align' },
+      btn('Left', 'alignLeft', () => align('left'), 'Align left edges'),
+      btn('Centre', 'alignCenter', () => align('center'), 'Align centres horizontally'),
+      btn('Right', 'alignRight', () => align('right'), 'Align right edges')),
+    el('div', { class: 'btn-row', role: 'group', 'aria-label': 'Align vertically' },
+      btn('Top', 'alignTop', () => align('top'), 'Align top edges'),
+      btn('Middle', 'alignMiddle', () => align('middle'), 'Align centres vertically'),
+      btn('Bottom', 'alignBottom', () => align('bottom'), 'Align bottom edges')),
+    el('div', { class: 'btn-row', role: 'group', 'aria-label': 'Distribute' },
+      btn('Spread across', 'distH', () => distribute('h'), 'Equal gaps from left to right (three or more objects)'),
+      btn('Spread down', 'distV', () => distribute('v'), 'Equal gaps from top to bottom (three or more objects)')),
+    el('div', { class: 'help' }, 'Uses where the objects are in the picture at the playhead.'));
+  root.append(group('Arrange', arrange));
+
+  const step = el('input', { type: 'number', step: 0.05, min: 0, value: 0.3, 'aria-label': 'Delay between objects (s)' });
+  root.append(group('Timing', el('div', { class: 'group-body' },
+    el('div', { class: 'row' }, el('span', { class: 'lbl' }, 'Delay (s)'), el('div', { class: 'ctl' }, step), el('span')),
+    el('div', { class: 'insp-actions', style: { padding: '6px 0 0' } },
+      el('button', { class: 'btn', onclick: () => stagger(Math.max(0, Number(step.value) || 0)) }, 'Stagger')),
+    el('div', { class: 'help' }, 'Starts each object this long after the one before: earlier ones first, then in the order they were added. Keyframes move with them.'))));
+
+  if (types.size === 1) {
+    const sc = schemaOf(objs[0]);
+    const ids = objs.map((o) => o.id);
+    const groups = [];
+    for (const p of sc.props) {
+      let g = groups.find((x) => x.name === p.group);
+      if (!g) groups.push(g = { name: p.group, props: [] });
+      g.props.push(p);
+    }
+    for (const g of groups) {
+      const body = el('div', { class: 'group-body' });
+      for (const p of g.props) body.append(makeRow(p, multiBinding(ids, p.name)));
+      root.append(group(g.name, body));
+    }
+  } else {
+    root.append(el('p', { class: 'insp-hint' }, 'Select objects of one kind to edit their values together.'));
+  }
+
+  root.append(el('div', { class: 'insp-actions' },
+    el('button', { class: 'btn primary', onclick: () => groupSelection(), title: 'Group (Ctrl+G)', disabled: !tops.length }, 'Group'),
+    objs.some(isGroup) ? el('button', { class: 'btn', onclick: () => ungroup(), title: 'Ungroup (Ctrl+Shift+G)' }, 'Ungroup') : null,
+    el('button', { class: 'btn', onclick: () => duplicateSelected(), title: 'Duplicate (Ctrl+D)' }, 'Duplicate'),
+    el('button', { class: 'btn danger', onclick: () => removeSelected(), title: 'Delete (Del)' }, 'Delete')));
+}
+
+function multiBinding(ids, name) {
+  const primary = () => objById(S.selected) || objById(ids[0]);
+  return {
+    animatable: true,
+    ids,
+    get: () => { const o = primary(); return o ? valueAt(o, name, S.time) : undefined; },
+    set: (v, live = true) => commit(() => {
+      for (const id of ids) { const o = objById(id); if (o) setValue(o, name, JSON.parse(JSON.stringify(v))); }
+    }, { coalesce: `multi.${name}`, source: 'inspector', live }),
+    obj: primary,
+    name,
+  };
 }
 
 function group(name, body) {
@@ -119,6 +251,19 @@ function timingGroup(obj, sc) {
       el('div', { class: 'pair' }, effSel(obj.exit.effect, (v) => upd((o) => { o.exit.effect = v; })),
         num(obj.exit.duration, 's', (v) => upd((o) => { o.exit.duration = Math.max(0, v || 0); }), 0.1))));
   const note = obj.end == null ? el('div', { class: 'help', style: { padding: '0 14px 10px' } }, 'The exit effect plays only when a disappear time is set.') : null;
+  const inside = new Set([id, ...descendants(id).map((d) => d.id)]);
+  const groupsList = S.project.objects.filter((o) => isGroup(o) && !inside.has(o.id));
+  let parentRow = null;
+  if (groupsList.length || obj.parent) {
+    const sel = el('select', { 'aria-label': 'In group' },
+      el('option', { value: '' }, 'None'),
+      groupsList.map((g) => el('option', { value: g.id, selected: g.id === obj.parent }, g.name || g.id)));
+    if (obj.parent && !groupsList.some((g) => g.id === obj.parent)) sel.append(el('option', { value: obj.parent, selected: true }, `${obj.parent} (missing)`));
+    sel.addEventListener('change', () => setParent(id, sel.value || null));
+    parentRow = el('label', { class: 'cell wide' }, el('span', {}, 'In group'), sel);
+    body.append(parentRow);
+    rowsByProp.set('parent', parentRow);
+  }
   return group('Timing', el('div', {}, body, note));
 }
 
@@ -134,19 +279,158 @@ function keyframeList(obj) {
   const id = obj.id;
   const list = el('div', { class: 'kflist' });
   for (const r of rows) {
+    const cur = r.k.ease || 'smooth';
     const ease = el('select', { 'aria-label': 'Easing into this keyframe', title: 'How the value eases into this keyframe' },
-      EASINGS.map((e) => el('option', { value: e, selected: e === (r.k.ease || 'smooth') }, e.replace('_', ' '))));
-    ease.addEventListener('change', () => commit(() => { const o = objById(id); o.keys[r.name][r.idx].ease = ease.value; }, { source: 'inspector' }));
+      EASINGS.map((e) => el('option', { value: e, selected: e === cur }, e === 'bezier' ? 'custom' : e.replace('_', ' '))));
+    const curve = el('button', { class: 'icon-btn small curve-btn', title: 'Edit the easing curve', 'aria-label': `Edit the easing curve of ${r.label}` });
+    const showCurve = () => {
+      const o = objById(id);
+      const k = o && o.keys[r.name] ? o.keys[r.name].find((x) => Math.abs(x.t - r.k.t) < 1e-6) : null;
+      const e = k ? k.ease || 'smooth' : cur;
+      curve.innerHTML = curveSvg(e === 'bezier' ? k.bez : null, e);
+      curve.classList.toggle('dim', e !== 'bezier');
+      if (document.activeElement !== ease) ease.value = e;
+    };
+    showCurve();
+    ease.addEventListener('change', () => {
+      commit(() => {
+        const k = objById(id).keys[r.name][r.idx];
+        k.ease = ease.value;
+        if (ease.value === 'bezier' && !k.bez) k.bez = [...BEZIER_PRESETS.ease];
+      }, { source: 'inspector' });
+      showCurve();
+      if (ease.value === 'bezier') curveEditor(curve, id, r.name, r.k.t, showCurve);
+    });
+    curve.addEventListener('click', () => curveEditor(curve, id, r.name, r.k.t, showCurve));
     list.append(el('div', { class: 'kfrow' },
       el('span', { class: 'diamond', html: icon('diamond') }),
       el('span', { class: 'nm', title: r.label }, r.label),
       el('button', { class: 't', title: 'Go to this keyframe', onclick: () => emit('seek', r.k.t) }, fmtTime(r.k.t)),
-      ease,
+      ease, curve,
       el('button', { class: 'kf', title: 'Delete keyframe', html: icon('close'),
         onclick: () => commit(() => removeKey(objById(id), r.name, r.idx), { source: 'kf-list' }) })));
   }
   return el('div', { class: 'group-body' }, list,
-    el('div', { class: 'help' }, 'Gold labels mark animated values. Change one at another time to add a keyframe there.'));
+    el('div', { class: 'help' }, 'Gold labels mark animated values. Change one at another time to add a keyframe there. The easing sets how the value moves into each keyframe.'));
+}
+
+// ------------------------------------------------------------------ easing curve editor
+function curvePoints(bez, name) {
+  const pts = [];
+  for (let i = 0; i <= 24; i++) {
+    const u = i / 24;
+    let v;
+    if (bez) v = cubicBezier(...bez, u);
+    else if (name === 'linear') v = u;
+    else if (name === 'hold') v = u < 1 ? 0 : 1;
+    else if (name === 'in') v = u ** 3;
+    else if (name === 'out') v = 1 - (1 - u) ** 3;
+    else if (name === 'sine') v = 0.5 - 0.5 * Math.cos(Math.PI * u);
+    else if (name === 'overshoot') v = 1 + 2.70158 * (u - 1) ** 3 + 1.70158 * (u - 1) ** 2;
+    else if (name === 'smoother') v = u * u * u * (u * (u * 6 - 15) + 10);
+    else v = u * u * (3 - 2 * u);
+    pts.push([u, v]);
+  }
+  return pts;
+}
+
+function curveSvg(bez, name) {
+  const pts = curvePoints(bez, name).map(([u, v]) => `${(2 + u * 16).toFixed(2)},${(16 - v * 12).toFixed(2)}`).join(' ');
+  return `<svg viewBox="0 0 20 20" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+}
+
+function curveEditor(anchor, id, name, t, onChange = () => {}) {
+  const W = 220, H = 220, PAD = 30;
+  const Y0 = -0.5, Y1 = 1.5;                       // vertical room for overshoot
+  const keyNow = () => {
+    const o = objById(id);
+    const ks = o && o.keys[name];
+    return ks ? ks.find((k) => Math.abs(k.t - t) < 1e-6) : null;
+  };
+  if (!keyNow()) return;
+  const dpr = window.devicePixelRatio || 1;
+  const cv = el('canvas', { width: W * dpr, height: H * dpr, style: { width: `${W}px`, height: `${H}px` }, class: 'curve-canvas',
+    'aria-label': 'Easing curve. Drag the two round handles.', role: 'img' });
+  const px = (x, y) => [PAD + x * (W - 2 * PAD), PAD + (Y1 - y) / (Y1 - Y0) * (H - 2 * PAD)];
+  const ux = (cx, cy) => [(cx - PAD) / (W - 2 * PAD), Y1 - ((cy - PAD) / (H - 2 * PAD)) * (Y1 - Y0)];
+  const inputs = [0, 1, 2, 3].map((i) => el('input', { type: 'number', step: 0.01, 'aria-label': ['x1', 'y1', 'x2', 'y2'][i] }));
+  const bez = () => {
+    const k = keyNow();
+    return k && k.ease === 'bezier' && Array.isArray(k.bez) ? k.bez.map(Number) : [...BEZIER_PRESETS.ease];
+  };
+  const tag = `bez-${id}-${name}-${t}-${Date.now()}`;
+  const setBez = (b, live = true) => {
+    const v = [Math.min(1, Math.max(0, b[0])), Math.min(Y1, Math.max(Y0, b[1])), Math.min(1, Math.max(0, b[2])), Math.min(Y1, Math.max(Y0, b[3]))]
+      .map((x) => Math.round(x * 1000) / 1000);
+    commit(() => { const k = keyNow(); if (k) { k.ease = 'bezier'; k.bez = v; } }, { coalesce: tag, source: 'inspector', live });
+    draw();
+    onChange();
+  };
+  const draw = () => {
+    const b = bez();
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, W, H);
+    g.strokeStyle = 'rgba(226,232,243,.12)';
+    g.lineWidth = 1;
+    const [ax, ay] = px(0, 0), [bx, by] = px(1, 1);
+    g.strokeRect(ax, by, bx - ax, ay - by);
+    g.setLineDash([3, 3]);
+    g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+    g.setLineDash([]);
+    const [h1x, h1y] = px(b[0], b[1]), [h2x, h2y] = px(b[2], b[3]);
+    g.strokeStyle = 'rgba(79,209,197,.55)';
+    g.beginPath(); g.moveTo(ax, ay); g.lineTo(h1x, h1y); g.moveTo(bx, by); g.lineTo(h2x, h2y); g.stroke();
+    g.strokeStyle = '#f2c14e';
+    g.lineWidth = 2;
+    g.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const u = i / 60;
+      const [x, y] = px(u, cubicBezier(...b, u));
+      if (i) g.lineTo(x, y); else g.moveTo(x, y);
+    }
+    g.stroke();
+    for (const [x, y] of [[h1x, h1y], [h2x, h2y]]) {
+      g.fillStyle = '#4fd1c5';
+      g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2); g.fill();
+    }
+    inputs.forEach((inp, i) => { if (document.activeElement !== inp) inp.value = b[i]; });
+  };
+  cv.addEventListener('pointerdown', (e) => {
+    const r = cv.getBoundingClientRect();
+    const cx = e.clientX - r.left, cy = e.clientY - r.top;
+    const b = bez();
+    const d1 = Math.hypot(cx - px(b[0], b[1])[0], cy - px(b[0], b[1])[1]);
+    const d2 = Math.hypot(cx - px(b[2], b[3])[0], cy - px(b[2], b[3])[1]);
+    const which = d1 <= d2 ? 0 : 2;
+    if (Math.min(d1, d2) > 24) return;
+    e.preventDefault();
+    const move = (ev) => {
+      const [u, v] = ux(ev.clientX - r.left, ev.clientY - r.top);
+      const nb = bez();
+      nb[which] = u;
+      nb[which + 1] = v;
+      setBez(nb);
+    };
+    move(e);
+    drag(e, (_dx, _dy, ev) => move(ev));
+  });
+  inputs.forEach((inp, i) => inp.addEventListener('change', () => {
+    const v = Number(inp.value);
+    if (!Number.isFinite(v)) return;
+    const b = bez();
+    b[i] = v;
+    setBez(b, false);
+  }));
+  const presets = el('div', { class: 'curve-presets' }, Object.entries(BEZIER_PRESETS).map(([nm, b]) =>
+    el('button', { class: 'chip', title: b.join(', '), onclick: () => setBez(b, false) }, nm)));
+  popover(anchor, el('div', { class: 'curve-pop' },
+    el('div', { class: 'curve-title' }, 'Easing into this keyframe'),
+    cv,
+    el('div', { class: 'curve-nums' }, inputs.map((inp, i) => el('label', {}, el('span', {}, ['x1', 'y1', 'x2', 'y2'][i]), inp))),
+    presets,
+    el('div', { class: 'help' }, 'Horizontal: time between the two keyframes. Vertical: how far the value has moved. Above the box overshoots.')));
+  draw();
 }
 
 // ------------------------------------------------------------------ film panel
@@ -156,8 +440,11 @@ function renderFilm() {
   root.append(el('p', { class: 'insp-hint' }, S.project.objects.length
     ? 'Select an object in the preview or the timeline to edit it.'
     : 'Add objects from the list on the left, or start from a template with New.'));
-  if (S.issues.length) {
-    root.append(group('Problems', el('ul', { class: 'issue-list' }, S.issues.map((i) => el('li', {}, i)))));
+  if (S.problems.length) {
+    root.append(group('Problems', el('ul', { class: 'issue-list' }, S.problems.map((p) => {
+      const o = p.id ? objById(p.id) : null;
+      return el('li', {}, o ? el('button', { class: 'link', onclick: () => select(o.id) }, o.name || o.id) : null, o ? ': ' : '', p.message);
+    }))));
   }
   const groups = [];
   for (const p of S.settingsSchema) {
@@ -237,13 +524,17 @@ function makeRow(p, b) {
 }
 
 function toggleKey(b) {
-  const id = b.obj().id;
+  const ids = b.ids || [b.obj().id];
   const name = b.name;
+  const on = keyIndexAt(b.obj(), name, S.time) >= 0;
   commit(() => {
-    const o = objById(id);
-    const i = keyIndexAt(o, name, S.time);
-    if (i >= 0) removeKey(o, name, i);
-    else setKey(o, name, S.time, valueAt(o, name, S.time));
+    for (const id of ids) {
+      const o = objById(id);
+      if (!o) continue;
+      const i = keyIndexAt(o, name, S.time);
+      if (on && i >= 0) removeKey(o, name, i);
+      else if (!on && i < 0) setKey(o, name, S.time, valueAt(o, name, S.time));
+    }
   }, { source: 'kf-toggle' });
 }
 
@@ -449,27 +740,42 @@ export function pickFiles(accept) {
 export function duplicate(id) {
   const o = objById(id);
   if (!o || id === 'camera') return;
+  if (S.selection.length > 1 || isGroup(o)) { duplicateSelected(); return; }
   const copy = JSON.parse(JSON.stringify(o));
   copy.id = uniqueId(o.type);
   copy.name = `${o.name} copy`;
   commit((p) => { p.objects.splice(p.objects.indexOf(objById(id)) + 1, 0, copy); }, { source: 'dup' });
-  emit('select', copy.id);
+  select(copy.id);
 }
 
 export function removeObject(id) {
   if (!id || id === 'camera') return;
-  commit((p) => { p.objects = p.objects.filter((o) => o.id !== id); }, { source: 'delete' });
-  emit('select', null);
+  if (!S.selection.includes(id)) select(id);
+  removeSelected();
 }
 
-/** dir -1 = draw later (on top), +1 = draw earlier. The timeline lists the top-most object first. */
+/**
+ * dir -1 = draw later (on top), +1 = draw earlier. The timeline lists the top-most object first.
+ * Moves past the neighbour at the same group level; a group moves with its members.
+ */
 export function move(id, dir) {
   commit((p) => {
-    const i = p.objects.findIndex((o) => o.id === id);
-    const j = i - dir;
-    if (i < 0 || j < 0 || j >= p.objects.length) return;
-    const [o] = p.objects.splice(i, 1);
-    p.objects.splice(j, 0, o);
+    const me = p.objects.find((o) => o.id === id);
+    if (!me) return;
+    const blockOf = (o) => new Set([o.id, ...(isGroup(o) ? descendants(o.id).map((d) => d.id) : [])]);
+    const mine = blockOf(me);
+    const level = p.objects.filter((o) => (o.parent || null) === (me.parent || null) || (me.parent && !objById(me.parent) && !o.parent));
+    const k = level.indexOf(me);
+    const other = level[k - dir];
+    if (!other) return;
+    const theirs = blockOf(other);
+    const a = p.objects.filter((o) => mine.has(o.id));
+    const b = p.objects.filter((o) => theirs.has(o.id));
+    const rest = p.objects.filter((o) => !mine.has(o.id) && !theirs.has(o.id));
+    const firstIdx = Math.min(...[...mine, ...theirs].map((x) => p.objects.findIndex((o) => o.id === x)));
+    const at = p.objects.slice(0, firstIdx).filter((o) => !mine.has(o.id) && !theirs.has(o.id)).length;
+    rest.splice(at, 0, ...(dir < 0 ? [...b, ...a] : [...a, ...b]));
+    p.objects = rest;
   }, { source: 'move' });
 }
 
@@ -490,10 +796,21 @@ export function addObject(type, extra = {}) {
     if (ax) obj.props.axes = ax.id;
   }
   Object.assign(obj.props, extra);
-  commit((p) => { p.objects.push(obj); }, { source: 'add' });
-  emit('select', id);
+  // inside the open group when a group (or one of its members) is selected
+  const cur = objById(S.selected);
+  const into = cur && cur.type !== 'camera' ? (isGroup(cur) ? cur.id : cur.parent || null) : null;
+  if (into && isGroup(objById(into))) obj.parent = into;
+  commit((p) => {
+    if (obj.parent) {
+      const gi = p.objects.findIndex((o) => o.id === obj.parent);
+      p.objects.splice(gi, 0, obj);
+    } else p.objects.push(obj);
+  }, { source: 'add' });
+  select(id);
   if (axesProp && !obj.props.axes) toast('Add a Chart axes object, then pick it in this series’ Axes field.');
   return obj;
 }
 
 on('time', () => refreshInspector());
+on('issues', () => syncIssues());
+on('frame', () => syncIssues());

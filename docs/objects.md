@@ -592,6 +592,7 @@ Default enter effect: `draw`. Effects: `none`, `fade`, `slide_up`, `slide_down`,
 - [Circle / ellipse](#ellipse) (`ellipse`): Circle or ellipse: highlight a cluster, a region of interest, a spot.
 - [Arrow](#arrow) (`arrow`): Straight or curved arrow pointing at something.
 - [Image](#image) (`image`): A picture or data array (radiograph, slice, micrograph, logo) placed in the frame.
+- [Group](#group) (`group`): Moves, scales, fades and times its members together. Select objects and press Ctrl+G.
 
 <a id="panel"></a>
 ### Panel / card (`panel`)
@@ -704,6 +705,23 @@ Default enter effect: `fade`. Effects: `none`, `fade`, `slide_up`, `slide_down`,
 | `border_color` | colour | cream | yes |  |
 | `border_width` | number (0..30) | 0 | yes |  |
 | `glow` | number (0..3) | 0.3 | yes | Glow of the image itself |
+| `opacity` | number (0..1) | 1 | yes |  |
+
+<a id="group"></a>
+### Group (`group`)
+
+Moves, scales, fades and times its members together. Select objects and press Ctrl+G.
+
+Default enter effect: `none`. Effects: `none`, `fade`, `slide_up`, `slide_down`, `slide_left`, `slide_right`, `pop`.
+
+| Property | Type | Default | Animatable | Notes |
+| --- | --- | --- | --- | --- |
+| `offset` | x, y | (0, 0) | yes | Shift of the members on screen, in pixels |
+| `scale` | number (0..) | 1 | yes | Scale of the members |
+| `pivot` | x, y | (960, 540) | yes | Point that 2D members scale about, in pixels |
+| `position` | x, y, z | (0, 0, 0) | yes | Shift of 3D members, in scene units |
+| `rotation` | x, y, z | (0, 0, 0) | yes | Rotation of 3D members, degrees about x, y, z |
+| `pivot3d` | x, y, z | (0, 0, 0) | yes | Point that 3D members rotate and scale about |
 | `opacity` | number (0..1) | 1 | yes |  |
 
 ## Camera (`camera`)

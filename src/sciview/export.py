@@ -16,8 +16,9 @@ import sys
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 

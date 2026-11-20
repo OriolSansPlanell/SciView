@@ -1,6 +1,7 @@
 """Per-frame render context shared by all objects."""
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -107,13 +108,26 @@ class RenderContext:
         self.duration = project.duration
         self.font = self.settings.get("font", "Poppins")
         self.warnings: list[str] = []
+        self.issues: list[dict] = []          # {"id", "prop", "message"} for the editor
+        self.current: str | None = None       # id of the object being drawn
         self._axes: dict[str, Any] = {}
         self._color_cache: dict[Any, np.ndarray] = {}
 
     # ------------------------------------------------------------------ helpers
-    def warn(self, msg: str) -> None:
+    def warn(self, msg: str, prop: str | None = None) -> None:
         if msg not in self.warnings:
             self.warnings.append(msg)
+            self.issues.append({"id": self.current, "prop": prop, "message": msg})
+
+    def derive(self, s: float | None = None, camera: Camera | None = None, current: str | None = None) -> RenderContext:
+        """A copy for one object (inside a group): its own scale/camera, shared caches and warnings."""
+        c = copy.copy(self)
+        if s is not None:
+            c.s = float(s)
+        if camera is not None:
+            c.camera = camera
+        c.current = current
+        return c
 
     def color(self, value) -> np.ndarray:
         if isinstance(value, (list, tuple, np.ndarray)):

@@ -81,6 +81,7 @@ export const modalOpen = () => modalStack.length > 0;
 let activePop = null;
 export function popover(anchor, content) {
   closePopover();
+  anchor.scrollIntoView({ block: 'nearest' });
   const r = anchor.getBoundingClientRect();
   const pop = el('div', { class: 'popover' }, content);
   document.body.append(pop);
@@ -88,6 +89,7 @@ export function popover(anchor, content) {
   let x = r.left, y = r.bottom + 6;
   if (x + pw > window.innerWidth - 8) x = window.innerWidth - pw - 8;
   if (y + ph > window.innerHeight - 8) y = r.top - ph - 6;
+  y = Math.min(y, window.innerHeight - ph - 8);
   pop.style.left = `${Math.max(8, x)}px`;
   pop.style.top = `${Math.max(8, y)}px`;
   const away = (e) => { if (!pop.contains(e.target) && e.target !== anchor) closePopover(); };

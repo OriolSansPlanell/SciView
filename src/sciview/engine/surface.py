@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
@@ -101,25 +102,57 @@ def arrow_head(tip: np.ndarray, direction: np.ndarray, size: float, width_ratio:
 
 # --------------------------------------------------------------------------- canvas
 class Canvas:
-    """Float RGB canvas with a glow buffer, clip rectangles and anti-aliased primitives."""
+    """Float RGB canvas with a glow buffer, clip rectangles and anti-aliased primitives.
 
-    def __init__(self, width: int, height: int, scale: float = 1.0, background: np.ndarray | None = None):
+    Two modes:
+
+    * normal: ``rgb`` holds the picture and primitives blend straight into it;
+    * layer (``layer=True``): nothing is known about what lies underneath, so the canvas
+      records an affine map ``F -> F * T + P`` per pixel (transmission ``T``, premultiplied
+      light ``P``). :meth:`paste` applies a layer to another canvas and gives exactly the
+      picture that drawing the same primitives directly would have given. The renderer
+      caches layers of objects that do not change between frames.
+
+    ``set_offset`` shifts everything drawn afterwards by a number of output pixels (used
+    for groups).
+    """
+
+    def __init__(self, width: int, height: int, scale: float = 1.0, background: np.ndarray | None = None,
+                 layer: bool = False):
         self.w, self.h, self.s = int(width), int(height), float(scale)
-        if background is not None:
+        self.layer = bool(layer)
+        if self.layer:
+            self.rgb = np.zeros((self.h, self.w, 3), np.float32)      # P
+            self.trans = np.ones((self.h, self.w), np.float32)        # T
+        elif background is not None:
             self.rgb = background.astype(np.float32, copy=True)
         else:
             self.rgb = np.zeros((self.h, self.w, 3), np.float32)
         self.emit = np.zeros((self.h, self.w, 3), np.float32)
         self._clips: list[tuple[int, int, int, int]] = [(0, 0, self.w, self.h)]
         self._emit_used = False
+        self._ebox: list[int] | None = None      # union of regions that received glow
+        self._touched: list[int] | None = None   # union of regions drawn (layer mode)
+        self.ox = 0.0
+        self.oy = 0.0
 
-    # ------------------------------------------------------------------ clipping
+    # ------------------------------------------------------------------ offset and clipping
+    def set_offset(self, ox: float = 0.0, oy: float = 0.0) -> None:
+        self.ox, self.oy = float(ox), float(oy)
+
+    def _t(self, pts) -> np.ndarray:
+        p = np.asarray(pts, np.float64).reshape(-1, 2)
+        if self.ox or self.oy:
+            p = p + (self.ox, self.oy)
+        return p
+
     @property
     def clip(self) -> tuple[int, int, int, int]:
         return self._clips[-1]
 
     def push_clip(self, x0: float, y0: float, x1: float, y1: float) -> None:
         cx0, cy0, cx1, cy1 = self.clip
+        x0, x1, y0, y1 = x0 + self.ox, x1 + self.ox, y0 + self.oy, y1 + self.oy
         self._clips.append((max(cx0, int(math.floor(x0))), max(cy0, int(math.floor(y0))),
                             min(cx1, int(math.ceil(x1))), min(cy1, int(math.ceil(y1)))))
 
@@ -146,43 +179,99 @@ class Canvas:
         p = (np.asarray(pts, np.float64) - (roi[0], roi[1])) * _ONE
         return np.round(np.clip(p, -1e6, 1e6)).astype(np.int32)
 
+    @staticmethod
+    def _grow(box: list[int] | None, roi) -> list[int]:
+        if box is None:
+            return list(roi)
+        return [min(box[0], roi[0]), min(box[1], roi[1]), max(box[2], roi[2]), max(box[3], roi[3])]
+
     # ------------------------------------------------------------------ compositing
+    def _blend(self, roi, m3: np.ndarray, colour: np.ndarray, additive: bool) -> None:
+        x0, y0, x1, y1 = roi
+        sub = self.rgb[y0:y1, x0:x1]
+        if self.layer:
+            self._touched = self._grow(self._touched, roi)
+            if additive:
+                sub += colour * m3
+            else:
+                keep = 1.0 - m3
+                sub *= keep
+                sub += colour * m3
+                self.trans[y0:y1, x0:x1] *= keep[..., 0]
+        elif additive:
+            sub += colour * m3
+        else:
+            sub += (colour - sub) * m3
+
+    def _glow(self, roi, m3: np.ndarray, colour: np.ndarray, glow: float) -> None:
+        if glow > 0:
+            x0, y0, x1, y1 = roi
+            self.emit[y0:y1, x0:x1] += colour * (m3 * glow)
+            self._emit_used = True
+            self._ebox = self._grow(self._ebox, roi)
+            if self.layer:
+                self._touched = self._grow(self._touched, roi)
+
     def composite(self, roi, mask: np.ndarray, color, alpha: float = 1.0, glow: float = 0.0,
                   additive: bool = False) -> None:
         """Blend ``color`` through ``mask`` (float 0..1 or uint8, ROI-sized) into the canvas."""
         if alpha <= 0 or roi is None:
             return
-        x0, y0, x1, y1 = roi
         if mask.dtype == np.uint8:
             m = mask.astype(np.float32) * (alpha / 255.0)
         else:
             m = mask.astype(np.float32, copy=False) * alpha
         m3 = m[..., None]
         col = np.asarray(color, np.float32).reshape(1, 1, 3)
-        sub = self.rgb[y0:y1, x0:x1]
-        if additive:
-            sub += col * m3
-        else:
-            sub += (col - sub) * m3
-        if glow > 0:
-            self.emit[y0:y1, x0:x1] += col * (m3 * glow)
-            self._emit_used = True
+        self._blend(roi, m3, col, additive)
+        self._glow(roi, m3, col, glow)
 
     def composite_rgb(self, roi, rgb: np.ndarray, mask: np.ndarray, alpha: float = 1.0,
                       glow: float = 0.0, additive: bool = False) -> None:
         """Blend a per-pixel colour image (ROI-sized) through a float mask."""
         if alpha <= 0 or roi is None:
             return
-        x0, y0, x1, y1 = roi
         m3 = (mask.astype(np.float32, copy=False) * alpha)[..., None]
-        sub = self.rgb[y0:y1, x0:x1]
-        if additive:
-            sub += rgb * m3
-        else:
-            sub += (rgb - sub) * m3
-        if glow > 0:
-            self.emit[y0:y1, x0:x1] += rgb * (m3 * glow)
-            self._emit_used = True
+        rgb = rgb.astype(np.float32, copy=False)
+        self._blend(roi, m3, rgb, additive)
+        self._glow(roi, m3, rgb, glow)
+
+    # ------------------------------------------------------------------ layers
+    def extract(self, tile: int = 64) -> Layer | None:
+        """The drawn part of a layer canvas as tiles; empty tiles (nothing drawn) are dropped."""
+        if not self.layer or self._touched is None:
+            return None
+        x0, y0, x1, y1 = self._touched
+        tiles = []
+        for ty in range(y0, y1, tile):
+            for tx in range(x0, x1, tile):
+                ex, ey = min(tx + tile, x1), min(ty + tile, y1)
+                T = self.trans[ty:ey, tx:ex]
+                P = self.rgb[ty:ey, tx:ex]
+                E = self.emit[ty:ey, tx:ex] if self._emit_used else None
+                if T.min() >= 1.0 and not P.any() and (E is None or not E.any()):
+                    continue
+                tiles.append((tx, ty, P.copy(), np.repeat(T[..., None], 3, axis=2),
+                              E.copy() if E is not None and E.any() else None))
+        return Layer(tiles)
+
+    def paste(self, lay: Layer | None) -> None:
+        """Apply a cached layer: F = F * T + P, glow added."""
+        if lay is None:
+            return
+        for x0, y0, P, T3, E in lay.tiles:
+            h, w = P.shape[:2]
+            roi = (x0, y0, x0 + w, y0 + h)
+            sub = self.rgb[y0:y0 + h, x0:x0 + w]
+            sub *= T3
+            sub += P
+            if self.layer:
+                self._touched = self._grow(self._touched, roi)
+                self.trans[y0:y0 + h, x0:x0 + w] *= T3[..., 0]
+            if E is not None:
+                self.emit[y0:y0 + h, x0:x0 + w] += E
+                self._emit_used = True
+                self._ebox = self._grow(self._ebox, roi)
 
     # ------------------------------------------------------------------ primitives
     def polygon(self, pts, fill=None, fill_alpha: float = 1.0, stroke=None, stroke_alpha: float = 1.0,
@@ -191,10 +280,11 @@ class Canvas:
         if len(pts) < 3 or not np.isfinite(pts).all():
             return
         if fill is not None and fill_alpha > 0:
-            roi = self._roi(pts, 2)
+            tp = self._t(pts)
+            roi = self._roi(tp, 2)
             if roi is not None:
                 mask = np.zeros((roi[3] - roi[1], roi[2] - roi[0]), np.uint8)
-                cv2.fillPoly(mask, [self._ipts(pts, roi)], 255, cv2.LINE_AA, _SHIFT)
+                cv2.fillPoly(mask, [self._ipts(tp, roi)], 255, cv2.LINE_AA, _SHIFT)
                 self.composite(roi, mask, fill, fill_alpha, fill_glow)
         if stroke is not None and stroke_alpha > 0 and width > 0:
             self.polyline(np.vstack([pts, pts[:1]]), stroke, stroke_alpha, width, glow, dash=dash)
@@ -213,17 +303,35 @@ class Canvas:
     def lines(self, paths: Iterable[np.ndarray], color, alpha: float = 1.0, width: float = 1.0,
               glow: float = 0.0, additive: bool = False) -> None:
         """Draw many open polylines with one style in a single pass (fast wireframes)."""
-        paths = [np.asarray(p, np.float64).reshape(-1, 2) for p in paths]
-        paths = [p for p in paths if len(p) >= 2 and np.isfinite(p).all()]
-        if not paths or alpha <= 0:
-            return
+        self.lines_levels({8: list(paths)}, color, alpha, width, glow, additive)
+
+    def lines_levels(self, groups: dict, color, alpha: float = 1.0, width: float = 1.0,
+                     glow: float = 0.0, additive: bool = False, levels: int = 8) -> None:
+        """Polylines at several opacities (``{level: [paths]}``, level 1..levels) in ONE composite.
+
+        Used for grids whose lines fade out: one mask instead of one pass per opacity.
+        """
         thick = max(1, int(round(width)))
         a = alpha * min(1.0, width) if width < 1 else alpha
-        roi = self._roi(np.vstack(paths), thick + 2)
+        if a <= 0:
+            return
+        clean: dict[int, list[np.ndarray]] = {}
+        allpts = []
+        for lvl, paths in groups.items():
+            ps = [self._t(p) for p in paths]
+            ps = [p for p in ps if len(p) >= 2 and np.isfinite(p).all()]
+            if ps and lvl > 0:
+                clean[int(lvl)] = ps
+                allpts.extend(ps)
+        if not allpts:
+            return
+        roi = self._roi(np.vstack(allpts), thick + 2)
         if roi is None:
             return
         mask = np.zeros((roi[3] - roi[1], roi[2] - roi[0]), np.uint8)
-        cv2.polylines(mask, [self._ipts(p, roi) for p in paths], False, 255, thick, cv2.LINE_AA, _SHIFT)
+        for lvl in sorted(clean):
+            value = int(round(255 * min(lvl, levels) / levels))
+            cv2.polylines(mask, [self._ipts(p, roi) for p in clean[lvl]], False, value, thick, cv2.LINE_AA, _SHIFT)
         self.composite(roi, mask, color, a, glow, additive)
 
     def circle(self, cx: float, cy: float, r: float, fill=None, fill_alpha: float = 1.0, stroke=None,
@@ -235,7 +343,7 @@ class Canvas:
     def dots(self, xy: np.ndarray, radius: float, color, alpha: float = 1.0, glow: float = 0.0,
              colors: np.ndarray | None = None) -> None:
         """Crisp filled discs (one colour, or per-dot ``colors`` (N,3))."""
-        xy = np.asarray(xy, np.float64).reshape(-1, 2)
+        xy = self._t(xy)
         ok = np.isfinite(xy).all(axis=1)
         xy = xy[ok]
         if colors is not None:
@@ -268,7 +376,7 @@ class Canvas:
         Crowded points glow instead of clipping to white (the particle-streak look).
         ``weights`` is a scalar or an (N,) array. ``colors`` (N,3) gives per-point colours.
         """
-        xy = np.asarray(xy, np.float64).reshape(-1, 2)
+        xy = self._t(xy)
         w = np.broadcast_to(np.asarray(weights, np.float64), (len(xy),)).copy()
         ok = np.isfinite(xy).all(axis=1) & (w > 0)
         xy, w = xy[ok], w[ok]
@@ -319,7 +427,7 @@ class Canvas:
              alpha: float = 1.0, glow: float = 0.0, additive: bool = False) -> tuple[int, int, int, int] | None:
         """Paste a float alpha ``mask`` (h,w) with its top-left at (x, y), coloured by ``color`` or ``rgb``."""
         h, w = mask.shape[:2]
-        X, Y = int(round(x)), int(round(y))
+        X, Y = int(round(x + self.ox)), int(round(y + self.oy))
         cx0, cy0, cx1, cy1 = self.clip
         x0, y0 = max(cx0, X), max(cy0, Y)
         x1, y1 = min(cx1, X + w), min(cy1, Y + h)
@@ -336,7 +444,7 @@ class Canvas:
     def warp(self, img: np.ndarray, quad: np.ndarray, alpha: float = 1.0, glow: float = 0.0,
              mask: np.ndarray | None = None, nearest: bool = False) -> None:
         """Map an RGB image (h,w,3) onto a quadrilateral (tl, tr, br, bl) in output pixels."""
-        quad = np.asarray(quad, np.float64).reshape(4, 2)
+        quad = self._t(quad).reshape(4, 2)
         roi = self._roi(quad, 2)
         if roi is None or alpha <= 0:
             return
@@ -364,30 +472,78 @@ class Canvas:
 
     # ------------------------------------------------------------------ finishing
     def finish(self, bloom: float = 0.6, vignette: float = 0.0, vignette_color=(0, 0, 0)) -> np.ndarray:
-        """Add bloom, apply vignette and a soft highlight shoulder; return uint8 RGB."""
+        """Add bloom, apply vignette and a soft highlight shoulder; return uint8 RGB.
+
+        The canvas is consumed: its buffers are modified in place.
+        """
         out = self.rgb
-        if bloom > 0 and self._emit_used:
-            e = self.emit
+        if bloom > 0 and self._emit_used and self._ebox is not None:
             s = self.s
-            h2, w2 = max(1, self.h // 2), max(1, self.w // 2)
-            h8, w8 = max(1, self.h // 8), max(1, self.w // 8)
+            margin = int(math.ceil(3 * 40.0 * s)) + 16          # 3 sigma of the widest blur
+            bx0, by0, bx1, by1 = self._ebox
+            # crop on the global 8-pixel grid (padding past the frame with zeros), so the
+            # result does not depend on how large the glowing region happens to be
+            X0, Y0 = max(0, (bx0 - margin) // 8 * 8), max(0, (by0 - margin) // 8 * 8)
+            X1, Y1 = -(-(bx1 + margin) // 8) * 8, -(-(by1 + margin) // 8) * 8
+            fx1, fy1 = min(self.w, X1), min(self.h, Y1)
+            if X1 <= self.w and Y1 <= self.h:
+                e = self.emit[Y0:Y1, X0:X1]
+            else:
+                e = np.zeros((Y1 - Y0, X1 - X0, 3), np.float32)
+                e[:fy1 - Y0, :fx1 - X0] = self.emit[Y0:fy1, X0:fx1]
+            h, w = e.shape[:2]
+            h2, w2, h8, w8 = h // 2, w // 2, h // 8, w // 8
             half = cv2.resize(e, (w2, h2), interpolation=cv2.INTER_AREA)
             eighth = cv2.resize(half, (w8, h8), interpolation=cv2.INTER_AREA)
             g1 = cv2.GaussianBlur(half, (0, 0), max(0.6, 3.0 * s / 2))
             g2 = cv2.GaussianBlur(eighth, (0, 0), max(0.6, 14.0 * s / 8))
             g3 = cv2.GaussianBlur(eighth, (0, 0), max(0.8, 40.0 * s / 8))
-            glow = cv2.resize(g1, (self.w, self.h), interpolation=cv2.INTER_LINEAR) * 0.9
-            glow += cv2.resize(g2 * 0.55 + g3 * 0.35, (self.w, self.h), interpolation=cv2.INTER_LINEAR)
-            out = out + glow * bloom
+            wide = cv2.addWeighted(g2, 0.55, g3, 0.35, 0.0)
+            glow_half = cv2.addWeighted(g1, 0.9, cv2.resize(wide, (w2, h2), interpolation=cv2.INTER_LINEAR), 1.0, 0.0)
+            glow = cv2.resize(glow_half, (w, h), interpolation=cv2.INTER_LINEAR)
+            region = out[Y0:fy1, X0:fx1]
+            region += glow[:fy1 - Y0, :fx1 - X0] * float(bloom)
         if vignette > 0:
-            vm = vignette_mask(self.w, self.h, vignette)[..., None]
-            out = out * vm + np.asarray(vignette_color, np.float32) * (1 - vm)
+            vm3, vadd = _vignette_terms(self.w, self.h, vignette, tuple(float(c) for c in vignette_color))
+            cv2.multiply(out, vm3, dst=out)
+            cv2.add(out, vadd, dst=out)
         # soft shoulder above 0.85 instead of a hard clip
         knee = 0.85
-        over = out > knee
-        if over.any():
-            out = np.where(over, knee + (1 - knee) * (1 - np.exp(-(out - knee) / (1 - knee))), out)
-        return (np.clip(out, 0, 1) * 255 + 0.5).astype(np.uint8)
+        if float(out.max()) > knee:
+            over = out > knee
+            v = out[over]
+            out[over] = knee + (1 - knee) * (1 - np.exp(-(v - knee) / (1 - knee)))
+        return cv2.convertScaleAbs(out, alpha=255.0)
+
+
+@dataclass
+class Layer:
+    """A cached drawing: tiles of (x, y, premultiplied light P, transmission T, glow E or None)."""
+
+    tiles: list
+
+    @property
+    def nbytes(self) -> int:
+        n = 0
+        for _x, _y, P, T3, E in self.tiles:
+            n += P.nbytes + T3.nbytes + (E.nbytes if E is not None else 0)
+        return n + 64
+
+
+_vterm_cache: dict[tuple, tuple[np.ndarray, np.ndarray]] = {}
+
+
+def _vignette_terms(w: int, h: int, strength: float, colour: tuple) -> tuple[np.ndarray, np.ndarray]:
+    key = (w, h, round(strength, 3), tuple(round(c, 4) for c in colour))
+    terms = _vterm_cache.get(key)
+    if terms is None:
+        vm = vignette_mask(w, h, strength)
+        vm3 = np.repeat(vm[..., None], 3, axis=2).astype(np.float32)
+        vadd = ((1 - vm3) * np.asarray(colour, np.float32)).astype(np.float32)
+        if len(_vterm_cache) > 6:
+            _vterm_cache.clear()
+        terms = _vterm_cache[key] = (vm3, vadd)
+    return terms
 
 
 _vig_cache: dict[tuple[int, int, float], np.ndarray] = {}

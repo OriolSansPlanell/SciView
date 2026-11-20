@@ -124,8 +124,11 @@ class Project:
 
     def add(self, type: str | SceneObject, name: str | None = None, *, start: float | None = None,
             end: float | None = None, enter: str | None = None, exit: str | None = None,
-            id: str | None = None, **props) -> SceneObject:
-        """Add an object by type name (``"box"``, ``"curve"`` ...) or instance; returns it."""
+            id: str | None = None, parent: str | SceneObject | None = None, **props) -> SceneObject:
+        """Add an object by type name (``"box"``, ``"curve"`` ...) or instance; returns it.
+
+        ``parent`` puts it in a group (the group object or its id).
+        """
         if isinstance(type, SceneObject):
             obj = type
             if any(o.id == obj.id for o in self.objects):
@@ -149,6 +152,8 @@ class Project:
             obj.enter_effect = enter
         if exit is not None:
             obj.exit_effect = exit
+        if parent is not None:
+            obj.parent = parent.id if isinstance(parent, SceneObject) else str(parent)
         self.objects.append(obj)
         return obj
 
@@ -166,9 +171,81 @@ class Project:
             raise KeyError(ref)
         return obj
 
-    def remove(self, ref: str | SceneObject) -> None:
+    def remove(self, ref: str | SceneObject, members: bool = True) -> None:
+        """Remove an object. Removing a group also removes its members, unless ``members=False``
+        (then they move up to the group's own parent)."""
         rid = ref.id if isinstance(ref, SceneObject) else ref
-        self.objects = [o for o in self.objects if o.id != rid]
+        obj = self.find(rid)
+        gone = {rid}
+        if obj is not None and obj.IS_GROUP:
+            if members:
+                gone |= {o.id for o in self.descendants(rid)}
+            else:
+                for o in self.children(rid):
+                    o.parent = obj.parent
+        self.objects = [o for o in self.objects if o.id not in gone]
+
+    # ------------------------------------------------------------------ groups
+    def children(self, group: str | SceneObject) -> list[SceneObject]:
+        gid = group.id if isinstance(group, SceneObject) else group
+        return [o for o in self.objects if o.parent == gid]
+
+    def descendants(self, group: str | SceneObject) -> list[SceneObject]:
+        gid = group.id if isinstance(group, SceneObject) else group
+        out, todo, seen = [], [gid], {gid}
+        while todo:
+            g = todo.pop()
+            for o in self.objects:
+                if o.parent == g and o.id not in seen:
+                    seen.add(o.id)
+                    out.append(o)
+                    if o.IS_GROUP:
+                        todo.append(o.id)
+        return out
+
+    def ancestors(self, obj: str | SceneObject) -> list[SceneObject]:
+        """Groups that contain ``obj``, nearest first. Broken or circular chains stop safely."""
+        o = self.find(obj) if isinstance(obj, str) else obj
+        out: list[SceneObject] = []
+        seen = {o.id} if o is not None else set()
+        while o is not None and o.parent:
+            g = self.find(o.parent)
+            if g is None or not g.IS_GROUP or g.id in seen:
+                break
+            seen.add(g.id)
+            out.append(g)
+            o = g
+        return out
+
+    def group(self, objects, name: str | None = None, **props) -> SceneObject:
+        """Put ``objects`` (objects or ids) in a new group and return it.
+
+        The members become neighbours in the drawing order, at the place of the top-most one.
+        """
+        members = [o if isinstance(o, SceneObject) else self[o] for o in objects]
+        if not members:
+            raise ValueError("group() needs at least one object")
+        ids = {m.id for m in members}
+        parents = {m.parent for m in members}
+        g = self.add("group", name=name or "Group", **props)
+        g.parent = parents.pop() if len(parents) == 1 else None
+        if g.parent in ids:
+            g.parent = None
+        top = max(i for i, o in enumerate(self.objects) if o.id in ids)
+        before = sum(1 for o in self.objects[:top] if o.id not in ids)
+        rest = [o for o in self.objects if o.id not in ids and o is not g]
+        ordered = [o for o in self.objects if o.id in ids]
+        self.objects = rest[:before] + ordered + [g] + rest[before:]
+        for m in members:
+            m.parent = g.id
+        return g
+
+    def ungroup(self, group: str | SceneObject) -> list[SceneObject]:
+        """Dissolve a group; its members keep their place and move up one level."""
+        g = group if isinstance(group, SceneObject) else self[group]
+        kids = self.children(g.id)
+        self.remove(g, members=False)
+        return kids
 
     def of_type(self, *types: str) -> list[SceneObject]:
         return [o for o in self.objects if o.TYPE in types]
@@ -226,35 +303,54 @@ class Project:
     # ------------------------------------------------------------------ checks
     def validate(self) -> list[str]:
         """Problems a user should fix: missing files, dangling chart references, bad expressions."""
+        return [p["message"] for p in self.problems()]
+
+    def problems(self) -> list[dict]:
+        """Like :meth:`validate`, as dicts ``{"id", "prop", "message"}`` so the editor can point at the field."""
         from ..engine.mathexpr import ExpressionError, compile_expression
-        issues = list(self.warnings)
+        out: list[dict] = []
+
+        def add(msg: str, obj: SceneObject | None = None, prop: str | None = None) -> None:
+            out.append({"id": obj.id if obj is not None else None, "prop": prop, "message": msg})
+
+        for w in self.warnings:
+            add(w)
         ids = {o.id for o in self.objects}
         for o in self.objects:
-            issues += o.warnings
+            for w in o.warnings:
+                add(w, o)
+            if o.parent:
+                g = self.find(o.parent)
+                if g is None:
+                    add(f"{o.name}: its group {o.parent!r} does not exist", o, "parent")
+                elif not g.IS_GROUP:
+                    add(f"{o.name}: {g.name} is not a group", o, "parent")
+                elif o.parent == o.id or (o.IS_GROUP and any(a.id == o.id for a in self.ancestors(g))):
+                    add(f"{o.name}: groups inside each other in a circle", o, "parent")
             for p in o.all_props():
                 val = o.props.get(p.name)
                 if p.kind == "asset" and val:
                     f = Path(val) if Path(val).is_absolute() else self.base_dir / val
                     if not f.exists():
-                        issues.append(f"{o.name}: file not found: {val}")
+                        add(f"{o.name}: file not found: {val}", o, p.name)
                 if p.kind == "ref" and val and val not in ids:
-                    issues.append(f"{o.name}: {p.label} points to a missing object {val!r}")
+                    add(f"{o.name}: {p.label} points to a missing object {val!r}", o, p.name)
                 if p.kind == "ref" and not val and p.name == "axes" and o.CATEGORY == "Charts":
-                    issues.append(f"{o.name}: choose a chart in 'Axes'")
+                    add(f"{o.name}: choose a chart in 'Axes'", o, p.name)
             for name in ("expression", "follow"):
                 expr = o.props.get(name)
                 if expr and (name != "expression" or o.props.get("source") == "expression"):
                     try:
                         compile_expression(expr)
                     except ExpressionError as exc:
-                        issues.append(f"{o.name}: {exc}")
+                        add(f"{o.name}: {exc}", o, name)
         a = self.settings.get("audio")
         if a and not (self.base_dir / a).exists() and not Path(a).exists():
-            issues.append(f"audio file not found: {a}")
+            add(f"audio file not found: {a}", None, "audio")
         font = self.settings.get("font")
         if font not in FAMILIES and not Path(font).is_file():
-            issues.append(f"font {font!r} is neither a bundled family ({', '.join(FAMILIES)}) nor a font file")
-        return issues
+            add(f"font {font!r} is neither a bundled family ({', '.join(FAMILIES)}) nor a font file", None, "font")
+        return out
 
     # ------------------------------------------------------------------ JSON
     def to_json(self) -> dict:

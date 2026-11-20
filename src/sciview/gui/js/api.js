@@ -23,7 +23,19 @@ async function request(method, url, body, headers = {}) {
 export const api = {
   state: () => request('GET', '/api/state'),
   putProject: (project) => request('PUT', '/api/project', project),
-  frame: (t, scale) => request('GET', `/api/frame?t=${t.toFixed(4)}&scale=${scale}`),
+  frame: async (t, scale, play = false) => {
+    const res = await fetch(`/api/frame?t=${t.toFixed(4)}&scale=${scale}${play ? '&play=1' : ''}`);
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).error || msg; } catch (e) { /* not JSON */ }
+      throw new Error(msg);
+    }
+    const raw = atob(res.headers.get('X-Frame-Info') || 'e30=');
+    const meta = JSON.parse(new TextDecoder().decode(Uint8Array.from(raw, (c) => c.charCodeAt(0))));
+    meta.image = URL.createObjectURL(await res.blob());
+    return meta;
+  },
+  recover: (action) => request('POST', '/api/recover', { action }),
   save: (path, project) => request('POST', '/api/save', { path, project }),
   open: (path) => request('POST', '/api/open', { path }),
   newFilm: (template) => request('POST', '/api/new', { template }),

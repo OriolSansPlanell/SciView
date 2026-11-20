@@ -7,8 +7,8 @@ Project files can come from other people, so expressions are parsed with
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable
 from functools import lru_cache
-from typing import Callable
 
 import numpy as np
 
@@ -70,3 +70,12 @@ def evaluate(src: str, **variables) -> np.ndarray:
     ns.update({k: np.asarray(v, np.float64) if not np.isscalar(v) else float(v) for k, v in variables.items()})
     with np.errstate(all="ignore"):
         return eval(code, {"__builtins__": {}}, ns)  # noqa: S307 - AST validated above
+
+
+def uses_time(src: str) -> bool:
+    """True if an expression mentions the film time ``t`` (so its curve moves)."""
+    try:
+        tree = ast.parse((src or "").replace("^", "**"), mode="eval")
+    except SyntaxError:
+        return False
+    return any(isinstance(n, ast.Name) and n.id == "t" for n in ast.walk(tree))
