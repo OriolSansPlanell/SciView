@@ -8,11 +8,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from functools import lru_cache
-from typing import Union
 
 import numpy as np
 
-ColorLike = Union[str, Sequence[float], np.ndarray]
+ColorLike = str | Sequence[float] | np.ndarray
 
 #: Default palette, sampled from neon-on-navy explainer films.
 DEFAULT_PALETTE: dict[str, str] = {

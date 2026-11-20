@@ -30,6 +30,7 @@ const P = {
   image: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4 4 3 3-2 4 3"/>',
   camera: '<rect x="3" y="7" width="13" height="10" rx="2"/><path d="M16 10.5 21 8v8l-5-2.5"/>',
   square: '<rect x="5" y="5" width="14" height="14" rx="2"/>',
+  group: '<rect x="3" y="3" width="18" height="18" rx="2.5" stroke-dasharray="3 2.4"/><rect x="6.5" y="7" width="6" height="5" rx="1"/><circle cx="15" cy="15" r="3"/>',
   // interface
   play: '<path d="M8 5.5v13l10.5-6.5Z" fill="currentColor"/>',
   pause: '<path d="M8 5.5v13M16 5.5v13" stroke-width="3"/>',
@@ -54,6 +55,16 @@ const P = {
   film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
   up: '<path d="M6 15l6-6 6 6"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
+  warning: '<path d="M12 3.5 21.5 20h-19Z"/><path d="M12 9.5v5"/><circle cx="12" cy="17.2" r=".6" fill="currentColor"/>',
+  alignLeft: '<path d="M4 3v18"/><rect x="7" y="6" width="12" height="4" rx="1"/><rect x="7" y="14" width="7" height="4" rx="1"/>',
+  alignCenter: '<path d="M12 3v18"/><rect x="5" y="6" width="14" height="4" rx="1"/><rect x="8" y="14" width="8" height="4" rx="1"/>',
+  alignRight: '<path d="M20 3v18"/><rect x="5" y="6" width="12" height="4" rx="1"/><rect x="10" y="14" width="7" height="4" rx="1"/>',
+  alignTop: '<path d="M3 4h18"/><rect x="6" y="7" width="4" height="12" rx="1"/><rect x="14" y="7" width="4" height="7" rx="1"/>',
+  alignMiddle: '<path d="M3 12h18"/><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="8" width="4" height="8" rx="1"/>',
+  alignBottom: '<path d="M3 20h18"/><rect x="6" y="5" width="4" height="12" rx="1"/><rect x="14" y="10" width="4" height="7" rx="1"/>',
+  distH: '<path d="M3 4v16M21 4v16"/><rect x="9.5" y="8" width="5" height="8" rx="1"/>',
+  distV: '<path d="M4 3h16M4 21h16"/><rect x="8" y="9.5" width="8" height="5" rx="1"/>',
+  ease: '<path d="M4 20C10 20 14 4 20 4"/><circle cx="4" cy="20" r="1.3"/><circle cx="20" cy="4" r="1.3"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
 };
 

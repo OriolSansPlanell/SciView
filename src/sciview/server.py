@@ -116,13 +116,106 @@ class EditorSession:
         self.export_state: dict = {"state": "idle"}
         self.export_cancel = threading.Event()
         self.export_thread: threading.Thread | None = None
+        # prefetch: frames ahead of the playhead, rendered while the editor is idle
+        self.prefetch_target: tuple | None = None
+        self.prefetch_event = threading.Event()
+        self.fg_waiting = 0
+        self.stop = threading.Event()
+        self.prefetch_thread: threading.Thread | None = None
+        # autosave
+        self.autosaved_rev = self.rev
+        self.recovery: dict | None = None
+        self.check_recovery()
+
+    # ------------------------------------------------------------------ autosave
+    @property
+    def autosave_path(self) -> Path:
+        return self.path.with_name("." + self.path.name + ".autosave")
+
+    def check_recovery(self) -> None:
+        a = self.autosave_path
+        self.recovery = None
+        try:
+            if a.exists():
+                newer = (not self.path.exists()) or a.stat().st_mtime > self.path.stat().st_mtime
+                if newer:
+                    self.recovery = {"path": str(a), "time": time.strftime("%Y-%m-%d %H:%M", time.localtime(a.stat().st_mtime))}
+        except OSError:
+            self.recovery = None
+
+    def autosave_now(self) -> bool:
+        """Write unsaved changes next to the project file; True if something was written."""
+        with self.lock:
+            if self.rev == self.saved_rev or self.rev == self.autosaved_rev:
+                return False
+            data = json.dumps(self.project.to_json(), indent=1, ensure_ascii=False)
+            rev = self.rev
+        try:
+            a = self.autosave_path
+            tmp = a.with_name(a.name + ".tmp")
+            tmp.write_text(data, encoding="utf-8")
+            os.replace(tmp, a)
+        except OSError:
+            return False
+        self.autosaved_rev = rev
+        return True
+
+    def drop_autosave(self) -> None:
+        try:
+            self.autosave_path.unlink()
+        except OSError:
+            pass
+        self.recovery = None
+
+    def recover(self, action: str) -> None:
+        if action == "restore" and self.recovery:
+            path = self.path
+            proj = Project.load(self.autosave_path)
+            proj.path = path
+            self.set_project(proj)          # unsaved: the user decides when to save
+            self.recovery = None
+        else:
+            self.drop_autosave()
+
+    def start_background(self, autosave_interval: float = 30.0, prefetch: bool = True) -> None:
+        if prefetch and self.prefetch_thread is None:
+            self.prefetch_thread = threading.Thread(target=self._prefetch_loop, daemon=True)
+            self.prefetch_thread.start()
+        if autosave_interval and autosave_interval > 0:
+            def loop():
+                while not self.stop.wait(autosave_interval):
+                    self.autosave_now()
+            threading.Thread(target=loop, daemon=True).start()
+
+    # ------------------------------------------------------------------ prefetch
+    def _prefetch_loop(self) -> None:
+        while not self.stop.is_set():
+            self.prefetch_event.wait(0.5)
+            self.prefetch_event.clear()
+            target = self.prefetch_target
+            if target is None:
+                continue
+            rev, first, last, scale = target
+            for idx in range(first, last + 1):
+                if self.stop.is_set() or self.prefetch_target is not target or self.rev != rev:
+                    break
+                if self.export_thread is not None and self.export_thread.is_alive():
+                    break
+                while self.fg_waiting > 0 and not self.stop.is_set():
+                    time.sleep(0.005)
+                with self.lock:
+                    if (rev, idx, round(scale, 3)) in self.cache:
+                        continue
+                self._render(idx, scale, rev)
 
     @property
     def path(self) -> Path:
         return Path(self.project.path)
 
     def set_project(self, proj: Project, mark_saved: bool = False) -> None:
-        with self.lock:
+        # wait for a frame being drawn to finish, so it never sees two projects (lock order:
+        # render_lock, then lock; _render never holds both)
+        with self.render_lock, self.lock:
             if proj.path is None:
                 proj.path = self.path
             self.project = proj
@@ -161,31 +254,49 @@ class EditorSession:
                 "untitled": self.untitled,
                 "assets": self.assets(), "schema": all_schemas(), "templates": list_templates(),
                 "version": __version__, "ffmpeg": ff, "formats": FORMATS, "rev": self.rev,
-                "issues": self.project.validate()}
+                "issues": self.project.validate(), "problems": self.project.problems(),
+                "recovery": self.recovery}
 
-    def frame(self, t: float, scale: float) -> bytes:
+    def frame(self, t: float, scale: float, playing: bool = False) -> tuple[bytes, dict]:
+        """JPEG bytes and info for the frame nearest to t (frames are cached by index)."""
         fps = self.project.fps
-        key = (self.rev, int(round(t * fps * 4)), round(scale, 3))
+        idx = max(0, int(round(t * fps)))
+        key = (self.rev, idx, round(scale, 3))
         with self.lock:
             hit = self.cache.get(key)
             if hit is not None:
                 self.cache.move_to_end(key)
-                return hit
             rev = self.rev
+        if hit is None:
+            self.fg_waiting += 1
+            try:
+                hit = self._render(idx, scale, rev)
+            finally:
+                self.fg_waiting -= 1
+        ahead = int(fps * (3 if playing else 0.5))
+        last = min(int(round(self.project.duration * fps)), idx + ahead)
+        if ahead and last > idx:
+            self.prefetch_target = (rev, idx + 1, last, scale)
+            self.prefetch_event.set()
+        return hit
+
+    def _render(self, idx: int, scale: float, rev: int) -> tuple[bytes, dict]:
         info = FrameInfo()
         with self.render_lock:
-            img = self.renderer.frame(t, scale, info)
+            if rev != self.rev:          # the project changed while waiting
+                rev = self.rev
+            img = self.renderer.frame(idx / self.project.fps, scale, info)
         buf = io.BytesIO()
         Image.fromarray(img).save(buf, "JPEG", quality=88 if scale < 0.75 else 92)
-        data = json.dumps({"image": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode(),
-                           "boxes": info.boxes, "warnings": info.warnings, "ms": round(info.ms, 1),
-                           "rev": rev, "t": t}).encode()
+        meta = {"boxes": info.boxes, "warnings": info.warnings, "issues": info.issues, "ms": round(info.ms, 1),
+                "rev": rev, "t": idx / self.project.fps, "cached": info.cached}
+        out = (buf.getvalue(), meta)
         with self.lock:
             if rev == self.rev:
-                self.cache[key] = data
+                self.cache[(rev, idx, round(scale, 3))] = out
                 while len(self.cache) > 600:
                     self.cache.popitem(last=False)
-        return data
+        return out
 
     # ------------------------------------------------------------------ export
     def start_export(self, opts: dict) -> dict:
@@ -315,7 +426,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/frame":
                 t = float(q.get("t", 0))
                 scale = min(2.0, max(0.1, float(q.get("scale", 0.5))))
-                return self._send(200, s.frame(t, scale))
+                jpeg, meta = s.frame(t, scale, playing=q.get("play") == "1")
+                info = base64.b64encode(json.dumps(meta).encode()).decode()
+                return self._send(200, jpeg, "image/jpeg", {"X-Frame-Info": info})
             if path == "/api/still":
                 t = float(q.get("t", 0))
                 scale = min(4.0, max(0.1, float(q.get("scale", 1.0))))
@@ -374,7 +487,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = self._body_json()
                 proj = Project.from_json(data, s.project.path)
                 s.set_project(proj)
-                return self._json({"rev": s.rev, "issues": proj.validate()})
+                problems = proj.problems()
+                return self._json({"rev": s.rev, "issues": [p["message"] for p in problems], "problems": problems})
             return self._error("not found", 404)
         except Exception as exc:
             return self._error(f"{exc}", 400)
@@ -398,10 +512,17 @@ class Handler(BaseHTTPRequestHandler):
                     if not p.name.endswith(".json"):
                         p = p.with_name(p.name + ".sciview.json")
                     s.project.path = p.resolve()
+                old_autosave = s.autosave_path
                 saved = s.project.save()
                 with s.lock:
                     s.saved_rev = s.rev
                     s.untitled = False
+                for a in {old_autosave, s.autosave_path}:
+                    try:
+                        a.unlink()
+                    except OSError:
+                        pass
+                s.recovery = None
                 return self._json({"path": str(saved), "name": saved.name, "base_dir": str(saved.parent)})
             if path == "/api/open":
                 body = self._body_json()
@@ -411,6 +532,7 @@ class Handler(BaseHTTPRequestHandler):
                 proj = Project.load(p)
                 s.set_project(proj, mark_saved=True)
                 s.untitled = False
+                s.check_recovery()
                 return self._json(s.state())
             if path == "/api/new":
                 body = self._body_json()
@@ -420,6 +542,11 @@ class Handler(BaseHTTPRequestHandler):
                 proj.path = root / "untitled.sciview.json"
                 s.set_project(proj)
                 s.untitled = True
+                s.recovery = None
+                return self._json(s.state())
+            if path == "/api/recover":
+                body = self._body_json()
+                s.recover(body.get("action", "discard"))
                 return self._json(s.state())
             if path == "/api/assets":
                 fname = Path(urllib.parse.unquote(self.headers.get("X-Filename", "upload.bin"))).name
@@ -510,9 +637,13 @@ def serve(project_path: str | None = None, host: str = "127.0.0.1", port: int = 
     print("Press Ctrl+C to stop.")
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    srv.session.start_background()
     try:
         srv.serve_forever(poll_interval=0.3)
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
+        if srv.session.autosave_now():
+            print(f"Unsaved changes kept in {srv.session.autosave_path.name}; the editor offers them next time.")
+        srv.session.stop.set()
         srv.server_close()

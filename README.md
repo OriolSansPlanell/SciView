@@ -9,7 +9,7 @@
 <p align="center">
   <a href="https://github.com/OriolSansPlanell/SciView/actions/workflows/ci.yml"><img src="https://github.com/OriolSansPlanell/SciView/actions/workflows/ci.yml/badge.svg" alt="Tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4fd1c5" alt="MIT licence"></a>
-  <img src="https://img.shields.io/badge/python-3.9%E2%80%933.13-6cb4fc" alt="Python 3.9 to 3.13">
+  <img src="https://img.shields.io/badge/python-3.10%E2%80%933.14-6cb4fc" alt="Python 3.10 to 3.14">
 </p>
 
 Most scientists explain their work with static slides, because animation tools are either made for
@@ -36,7 +36,7 @@ into a talk.
 pip install "sciview[math] @ git+https://github.com/OriolSansPlanell/SciView"
 ```
 
-The `math` extra installs matplotlib, which renders the LaTeX equations. SciView needs Python 3.9 or newer
+The `math` extra installs matplotlib, which renders the LaTeX equations. SciView needs Python 3.10 or newer
 and works on Windows, macOS and Linux.
 
 ## Make your first film
@@ -48,16 +48,19 @@ sciview edit
 Your browser opens the editor. Pick a template or an empty film, then:
 
 1. **Add** objects from the list on the left. They appear at the current time.
-2. **Place** them: drag text and shapes in the preview, or type values in the panel on the right. Drag
-   empty space in the preview to orbit the 3D camera and scroll to zoom.
+2. **Place** them: drag objects in the preview, 2D and 3D alike (hold Shift to stay on one axis), or type
+   values in the panel on the right. Drag empty space to orbit the 3D camera and scroll to zoom. Shift-click
+   to select several objects, then align, distribute or group them (Ctrl+G) to move, scale, fade and time
+   them together.
 3. **Time** them: drag clips on the timeline to change when objects appear, and pick enter and exit effects
    (fade, slide, pop, draw on, type on).
 4. **Animate** any value with the diamond next to it: set a value at one time, move the playhead, change it
-   again. Gold labels show what is animated.
+   again. Gold labels show what is animated; draw your own easing curve for any keyframe.
 5. **Export** an MP4 for slides, a WebM for the web, ProRes for video editors, a GIF or PNG frames.
 
 Projects are saved as a readable `.sciview.json` file with an `assets` folder for your images and data.
-Press <kbd>?</kbd> in the editor for all shortcuts.
+The editor keeps unsaved changes next to the file every 30 seconds and offers them back if it stops before
+you save. Press <kbd>?</kbd> in the editor for all shortcuts.
 
 ## Or write it in Python
 
@@ -105,7 +108,7 @@ sciview check film.sciview.json                # missing files, broken reference
 | **3D scene** | box, cylinder, sphere, screen/detector with an image, particle beam with scattering, 3D arrow, floor grid, point cloud from a table, STL/OBJ model, 3D label |
 | **Text** | title, caption (also exported as subtitles), text with live counters, LaTeX equation, legend |
 | **Charts** | axes (linear or log, animatable ranges), curve from an expression or data, scatter, bars, histogram, marker that follows a curve, threshold line |
-| **Shapes & media** | panel/card with numbered badge, rectangle, ellipse, arrow, image (PNG, 16-bit TIFF, NumPy arrays, with colormaps) |
+| **Shapes & media** | panel/card with numbered badge, rectangle, ellipse, arrow, image (PNG, 16-bit TIFF, NumPy arrays, with colormaps), group |
 
 Curve expressions can use time: `sin(x - 2*t)` is a travelling wave. The full list of properties is in the
 [object reference](docs/objects.md).
@@ -114,7 +117,8 @@ Curve expressions can use time: `sin(x - 2*t)` is a travelling wave. The full li
 
 Every frame is a pure function of time: `frame(t)` builds the picture from the project and nothing is carried
 over from the previous frame. That makes any moment reproducible on its own, lets the preview jump anywhere
-instantly and lets exports render frames in parallel on all CPU cores.
+instantly and lets exports render frames in parallel on all CPU cores. Objects that do not change between
+frames are drawn once into cached layers, which never changes a pixel but saves work.
 
 Objects draw anti-aliased geometry with OpenCV into a float canvas and send light into a separate glow
 buffer, which is blurred at several scales and added back (the neon look). Particles are accumulated and

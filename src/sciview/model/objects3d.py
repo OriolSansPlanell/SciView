@@ -257,7 +257,7 @@ def prepare_image(ctx, v, key_extra=(), max_side=640):
         rgb, alpha = None, None
     if counts > 0 and buildup < 1.0 + 1e-9:
         gray = img if img.ndim == 2 else img[..., :3].mean(axis=2)
-        key = ("buildup", v.image, img.shape, counts, vmin, vmax, int(v.get("seed", 0)))
+        key = ("buildup", v.image, ctx.assets.stamp(v.image), img.shape, counts, vmin, vmax, int(v.get("seed", 0)))
 
         def make():
             lo = float(np.nanmin(gray)) if vmin is None else vmin
@@ -274,7 +274,7 @@ def prepare_image(ctx, v, key_extra=(), max_side=640):
             col = rgb * np.clip(shown / np.maximum(norm, 1e-3), 0, 1.5)[..., None]
         return col.astype(np.float32), alpha
     if rgb is None:
-        key = ("cmap", v.image, img.shape, v.colormap, vmin, vmax, float(v.get("gamma", 1.0)))
+        key = ("cmap", v.image, ctx.assets.stamp(v.image), img.shape, v.colormap, vmin, vmax, float(v.get("gamma", 1.0)))
         col = ctx.assets.memo(key, lambda: apply_colormap(img, v.colormap, vmin, vmax, float(v.get("gamma", 1.0))))
     else:
         col = rgb
@@ -354,7 +354,7 @@ class Screen(Object3D):
                     alpha = None if alpha is None else alpha[:, ::-1]
                 cv.warp(col, xy, a * v.image_opacity, v.image_glow, alpha, nearest=bool(v.pixelated))
             except Exception as exc:  # missing file etc.
-                ctx.warn(f"{self.name}: {exc}")
+                ctx.warn(f"{self.name}: {exc}", "image")
         if v.frame_width > 0:
             cv.polygon(xy, stroke=v.frame_color, stroke_alpha=a, width=v.frame_width * ctx.s, glow=v.glow)
         return _bbox(xy)
@@ -363,6 +363,7 @@ class Screen(Object3D):
 @register
 class Beam(Object3D):
     TYPE, LABEL, ICON = "beam", "Particle beam", "beam"
+    TIME_DEPENDENT = True
     DESCRIPTION = "Particles streaking from a source to a target, with optional scattering on the way."
     DEFAULT_ENTER = "none"
     PROPS = [
@@ -561,8 +562,7 @@ class Grid3D(Object3D):
                             levels.setdefault(lvl, []).append(xy[j:j + 2])
                 else:
                     levels.setdefault(8, []).append(xy)
-        for lvl, segs in levels.items():
-            cv.lines(segs, v.color, a * lvl / 8, v.width * ctx.s)
+        cv.lines_levels(levels, v.color, a, v.width * ctx.s)
         return _bbox(np.vstack(allxy)) if allxy else None
 
 
@@ -660,7 +660,7 @@ class Mesh(Object3D):
         return (verts * float(v.scale)) @ R.T + np.asarray(v.center), faces
 
     def _edges(self, ctx, v, verts, faces):
-        key = ("mesh_edges", v.model, float(v.feature_angle), faces.shape)
+        key = ("mesh_edges", v.model, ctx.assets.stamp(v.model), float(v.feature_angle), faces.shape)
 
         def make():
             e = np.sort(np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]), axis=1)

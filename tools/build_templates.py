@@ -136,9 +136,7 @@ def data_story() -> sv.Project:
     p.add("title", text="From gray level to concentration", subtitle="Three steps from a pixel to a number", start=0.2)
     p1 = p.add("panel", name="Panel 1", position=(80, 170), size=(520, 650), title="Gray level", badge=1, start=0.6)
     p2 = p.add("panel", name="Panel 2", position=(700, 170), size=(520, 650), title="Attenuation", badge=2, start=0.6)
-    p.add("panel", name="Panel 3", position=(1320, 170), size=(520, 650), title="Concentration", badge=3, start=0.6)
-    for panel, t in ((p1, 6.0), (p2, 12.0)):
-        panel.key("opacity", t, 1.0).key("opacity", t + 1.0, 0.45)
+    p3 = p.add("panel", name="Panel 3", position=(1320, 170), size=(520, 650), title="Concentration", badge=3, start=0.6)
     ax1 = p.add("axes", name="Counts", position=(170, 270), size=(380, 420), x_range=(0.4, 2.6), y_range=(0, 2400),
                 x_label="", y_label="counts", x_ticks=0, y_ticks=4, grid=True, start=1.2)
     p.add("bars", name="Open beam and sample", axes=ax1.id, values="2000, 642", labels="I_0, I", colors="gray, teal",
@@ -160,6 +158,16 @@ def data_story() -> sv.Project:
     c = p.add("text", name="Counter", text="**{value:.0f} %** D_2O", value=0, position=(1580, 770), size=40,
               color="gold", align="center", start=14.6)
     c.key("value", 14.6, 0.0, "linear").key("value", 16.0, 36.0, "out")
+    # each panel and what is drawn on it form a group, so a step fades back as a whole
+    objs = p.objects
+    first = {o.name: i for i, o in enumerate(objs)}
+    steps = (("Step 1", p1, ("Counts", "Open beam and sample", "Transmission"), 6.0),
+             ("Step 2", p2, ("Beer-Lambert", "-ln T", "This pixel", "mu"), 12.0),
+             ("Step 3", p3, ("Calibration", "Calibration line", "Result", "Counter"), None))
+    for name, panel, members, dim in steps:
+        g = p.group([panel, *(objs[first[n]] for n in members)], name=name, pivot=tuple(panel.props["position"]))
+        if dim is not None:
+            g.key("opacity", dim, 1.0).key("opacity", dim + 1.0, 0.45)
     p.add("caption", text="Subtract the dark signal and divide by the open beam: the transmission T.", start=1.5, end=6.5)
     p.add("caption", text="Beer–Lambert turns the transmission into an attenuation coefficient.", start=6.5, end=12.5)
     p.add("caption", text="A calibration line between pure H_2O and pure D_2O turns \\mu into a concentration.", start=12.5, end=17.6)

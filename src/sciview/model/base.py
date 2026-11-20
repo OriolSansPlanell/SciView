@@ -203,13 +203,16 @@ class SceneObject:
     DEFAULT_ENTER: ClassVar[str] = "fade"
     DEFAULT_EXIT: ClassVar[str] = "fade"
     DEFAULT_DURATION: ClassVar[float | None] = None  # seconds; None = until the end
+    TIME_DEPENDENT: ClassVar[bool] = False  # looks different at every instant (particles ...)
+    IS_GROUP: ClassVar[bool] = False
 
     def __init__(self, id: str | None = None, name: str | None = None, props: dict | None = None,
                  keys: dict | None = None, start: float = 0.0, end: float | None = None,
                  enter: dict | None = None, exit: dict | None = None, visible: bool = True,
-                 locked: bool = False, **kwargs):
+                 locked: bool = False, parent: str | None = None, **kwargs):
         self.id = id or f"{self.TYPE}{next(_id_counter)}"
         self.name = name or self.LABEL
+        self.parent: str | None = parent or None
         self.props: dict[str, Any] = {p.name: copy.deepcopy(p.default) for p in self.all_props()}
         self.keys: dict[str, list[dict]] = {}
         self.start = float(start or 0.0)
@@ -227,7 +230,10 @@ class SceneObject:
             self.set(k, v, strict=False)
         for k, ks in (keys or {}).items():
             for kf in ks:
-                self.key(k, kf.get("t", 0), kf.get("v"), kf.get("ease", "smooth"))
+                try:
+                    self.key(k, kf.get("t", 0), kf.get("v"), kf.get("ease", "smooth"), kf.get("bez"))
+                except (KeyError, ValueError) as exc:
+                    self.warnings.append(f"{self.name}: ignored keyframes of {k!r} ({exc})")
         for k, v in kwargs.items():
             self.set(k, v)
 
@@ -255,6 +261,8 @@ class SceneObject:
     @classmethod
     def effects(cls) -> list[str]:
         out = list(ENTER_EFFECTS)
+        if cls.IS_GROUP:
+            return out
         if cls.HAS_PROGRESS:
             out.append("draw")
         if cls.TEXTUAL:
@@ -290,8 +298,12 @@ class SceneObject:
     def __setitem__(self, name: str, value: Any) -> None:
         self.set(name, value)
 
-    def key(self, name: str, t: float, value: Any = None, ease: str = "smooth") -> SceneObject:
-        """Add (or replace) a keyframe. ``value=None`` keys the current static value."""
+    def key(self, name: str, t: float, value: Any = None, ease: str = "smooth", bez=None) -> SceneObject:
+        """Add (or replace) a keyframe. ``value=None`` keys the current static value.
+
+        ``ease`` names how the value eases INTO this keyframe; ``ease="bezier"`` with
+        ``bez=(x1, y1, x2, y2)`` gives a custom curve, as CSS cubic-bezier.
+        """
         p = self.prop_map().get(name)
         if p is None:
             raise KeyError(f"{self.TYPE} has no property {name!r}")
@@ -299,8 +311,18 @@ class SceneObject:
             raise ValueError(f"property {name!r} cannot be animated")
         v = p.coerce(self.props[name] if value is None else value)
         e = ease if ease in EASING_NAMES else "smooth"
+        kf: dict[str, Any] = {"t": float(t), "v": v, "ease": e}
+        if e == "bezier":
+            try:
+                b = [float(x) for x in (bez or ())]
+            except (TypeError, ValueError):
+                b = []
+            if len(b) != 4:
+                kf["ease"] = "smooth"
+            else:
+                kf["bez"] = [min(max(b[0], 0.0), 1.0), b[1], min(max(b[2], 0.0), 1.0), b[3]]
         ks = [k for k in self.keys.get(name, []) if abs(k["t"] - float(t)) > 1e-6]
-        ks.append({"t": float(t), "v": v, "ease": e})
+        ks.append(kf)
         ks.sort(key=lambda k: k["t"])
         self.keys[name] = ks
         return self
@@ -323,7 +345,7 @@ class SceneObject:
             return ks[-1]["v"]
         for a, b in zip(ks, ks[1:]):
             if a["t"] <= t < b["t"]:
-                u = ease(b.get("ease", "smooth"), (t - a["t"]) / max(b["t"] - a["t"], 1e-9))
+                u = ease(b.get("ease", "smooth"), (t - a["t"]) / max(b["t"] - a["t"], 1e-9), b.get("bez"))
                 return _lerp(p.kind, a["v"], b["v"], u, color_fn)
         return ks[-1]["v"]
 
@@ -360,6 +382,39 @@ class SceneObject:
 
     def span(self, film_duration: float) -> tuple[float, float]:
         return self.start, film_duration if self.end is None else self.end
+
+    def steady(self, t: float, film_duration: float) -> bool:
+        """True when no enter or exit effect is running at t (the object looks the same nearby)."""
+        start, end = self.span(film_duration)
+        if self.enter_effect != "none" and self.enter_duration > 0 and t < start + self.enter_duration:
+            return False
+        if self.end is not None and self.exit_effect != "none" and self.exit_duration > 0 and t > end - self.exit_duration:
+            return False
+        return True
+
+    def held(self, t: float) -> bool:
+        """True when every keyframed property keeps its value around t (before the first key,
+        after the last, or between two equal keys)."""
+        for ks in self.keys.values():
+            if not ks or t <= ks[0]["t"] or t >= ks[-1]["t"]:
+                continue
+            for a, b in zip(ks, ks[1:]):
+                if a["t"] <= t <= b["t"]:
+                    if a["v"] != b["v"]:
+                        return False
+                    break
+        return True
+
+    def keyed_values(self, t: float) -> dict:
+        return {name: self.value_at(name, t) for name in self.keys}
+
+    def depends_on_time(self) -> bool:
+        """True when the drawing changes with time even without keyframes (particles, waves)."""
+        return self.TIME_DEPENDENT
+
+    def refs(self) -> list[str]:
+        """Ids of other objects this one is drawn from (a series' chart)."""
+        return [self.props[p.name] for p in self.all_props() if p.kind == "ref" and self.props.get(p.name)]
 
     def state(self, t: float, film_duration: float) -> State | None:
         if not self.visible:
@@ -409,6 +464,8 @@ class SceneObject:
             d["visible"] = False
         if self.locked:
             d["locked"] = True
+        if self.parent:
+            d["parent"] = self.parent
         return d
 
     @classmethod
@@ -419,7 +476,7 @@ class SceneObject:
             raise ValueError(f"unknown object type {typ!r}. Known types: {', '.join(sorted(REGISTRY))}")
         return klass(id=d.get("id"), name=d.get("name"), props=d.get("props"), keys=d.get("keys"),
                      start=d.get("start", 0.0), end=d.get("end"), enter=d.get("enter"), exit=d.get("exit"),
-                     visible=d.get("visible", True), locked=d.get("locked", False))
+                     visible=d.get("visible", True), locked=d.get("locked", False), parent=d.get("parent"))
 
     def copy(self, new_id: str | None = None) -> SceneObject:
         d = self.to_json()

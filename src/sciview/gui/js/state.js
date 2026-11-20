@@ -21,7 +21,12 @@ export const S = {
   formats: {},
   ffmpeg: true,
   version: '',
-  selected: null,       // object id, 'camera', or null (film settings)
+  selected: null,       // primary selection: object id, 'camera', or null (film settings)
+  selection: [],        // all selected object ids (primary last)
+  problems: [],         // {id, prop, message} from the project checks
+  frameIssues: [],      // {id, prop, message} from the last rendered frame
+  recovery: null,
+  collapsed: new Set(), // collapsed groups in the timeline
   selKey: null,         // {id, t} selected keyframe group in the timeline
   time: 0,
   playing: false,
@@ -85,6 +90,78 @@ export function uniqueId(base) {
   return `${base}${i}`;
 }
 
+export const isGroup = (o) => !!o && o.type === 'group';
+export const children = (gid) => S.project.objects.filter((o) => o.parent === gid);
+
+export function descendants(gid) {
+  const out = [];
+  const todo = [gid];
+  const seen = new Set([gid]);
+  while (todo.length) {
+    const g = todo.pop();
+    for (const o of S.project.objects) {
+      if (o.parent === g && !seen.has(o.id)) {
+        seen.add(o.id);
+        out.push(o);
+        if (isGroup(o)) todo.push(o.id);
+      }
+    }
+  }
+  return out;
+}
+
+/** Groups containing obj, nearest first (stops on broken or circular chains). */
+export function ancestors(obj) {
+  const out = [];
+  const seen = new Set([obj && obj.id]);
+  let o = obj;
+  while (o && o.parent) {
+    const g = objById(o.parent);
+    if (!g || !isGroup(g) || seen.has(g.id)) break;
+    seen.add(g.id);
+    out.push(g);
+    o = g;
+  }
+  return out;
+}
+
+export const isSelected = (id) => S.selection.includes(id);
+
+/** Change the selection. mode: 'set' (default), 'toggle' or 'add'. */
+export function select(id, mode = 'set') {
+  if (id == null || id === 'camera') {
+    S.selection = id === 'camera' ? ['camera'] : [];
+    S.selected = id;
+  } else if (mode === 'toggle') {
+    S.selection = S.selection.filter((x) => x !== 'camera');
+    if (S.selection.includes(id)) S.selection = S.selection.filter((x) => x !== id);
+    else S.selection.push(id);
+    S.selected = S.selection.length ? S.selection[S.selection.length - 1] : null;
+  } else if (mode === 'add') {
+    S.selection = S.selection.filter((x) => x !== 'camera' && x !== id);
+    S.selection.push(id);
+    S.selected = id;
+  } else {
+    S.selection = [id];
+    S.selected = id;
+  }
+  if (!S.selKey || S.selKey.id !== S.selected) S.selKey = null;
+  emit('selection');
+}
+
+/** Problems for an object (or the film when id is null), from the checks and the last frame. */
+export function issuesFor(id) {
+  const seen = new Set();
+  const out = [];
+  for (const p of [...S.problems, ...S.frameIssues]) {
+    if ((p.id ?? null) === (id ?? null) && !seen.has(p.message)) {
+      seen.add(p.message);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
 export function span(obj) {
   return [Number(obj.start) || 0, obj.end == null ? duration() : Number(obj.end)];
 }
@@ -101,7 +178,44 @@ const EASE = {
   sine: (u) => 0.5 - 0.5 * Math.cos(Math.PI * u),
   hold: (u) => (u < 1 ? 0 : 1),
 };
-export const EASINGS = Object.keys(EASE);
+export const EASINGS = [...Object.keys(EASE), 'bezier'];
+export const BEZIER_PRESETS = {
+  ease: [0.25, 0.1, 0.25, 1], 'ease in': [0.42, 0, 1, 1], 'ease out': [0, 0, 0.58, 1],
+  'ease in-out': [0.42, 0, 0.58, 1], back: [0.34, 1.56, 0.64, 1], linear: [0, 0, 1, 1],
+};
+
+/** CSS-style cubic-bezier, the same algorithm as sciview.engine.easing.cubic_bezier. */
+export function cubicBezier(x1, y1, x2, y2, u) {
+  u = Math.max(0, Math.min(1, u));
+  if (u === 0 || u === 1) return u;
+  x1 = Math.min(Math.max(x1, 0), 1);
+  x2 = Math.min(Math.max(x2, 0), 1);
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const fx = (s) => ((ax * s + bx) * s + cx) * s;
+  let s = u;
+  for (let i = 0; i < 8; i++) {
+    const d = (3 * ax * s + 2 * bx) * s + cx;
+    const err = fx(s) - u;
+    if (Math.abs(err) < 1e-7 || Math.abs(d) < 1e-6) break;
+    s -= err / d;
+  }
+  if (!(s >= 0 && s <= 1) || Math.abs(fx(s) - u) > 1e-5) {
+    let lo = 0, hi = 1;
+    s = u;
+    for (let i = 0; i < 40; i++) {
+      if (fx(s) < u) lo = s; else hi = s;
+      s = (lo + hi) / 2;
+    }
+  }
+  return ((ay * s + by) * s + cy) * s;
+}
+
+export function easeValue(name, u, bez) {
+  u = Math.max(0, Math.min(1, u));
+  if (name === 'bezier') return bez && bez.length === 4 ? cubicBezier(...bez, u) : EASE.smooth(u);
+  return (EASE[name] || EASE.smooth)(u);
+}
 
 export function resolveColor(c) {
   if (Array.isArray(c)) return c;
@@ -133,8 +247,7 @@ export function valueAt(obj, name, t) {
   for (let i = 0; i < ks.length - 1; i++) {
     const a = ks[i], b = ks[i + 1];
     if (a.t <= t && t < b.t) {
-      const f = EASE[b.ease] || EASE.smooth;
-      const u = f(Math.max(0, Math.min(1, (t - a.t) / Math.max(b.t - a.t, 1e-9))));
+      const u = easeValue(b.ease, (t - a.t) / Math.max(b.t - a.t, 1e-9), b.bez);
       return lerp(p ? p.kind : 'number', a.v, b.v, u);
     }
   }
@@ -172,7 +285,7 @@ export function setValue(obj, name, value, t = S.time) {
   }
 }
 
-export function setKey(obj, name, t, value, ease) {
+export function setKey(obj, name, t, value, ease, bez) {
   obj.keys ||= {};
   const ks = obj.keys[name] ||= [];
   const tt = Math.round(t * fps()) / fps();
@@ -180,8 +293,11 @@ export function setKey(obj, name, t, value, ease) {
   if (i >= 0) {
     ks[i].v = value;
     if (ease) ks[i].ease = ease;
+    if (bez) ks[i].bez = [...bez];
   } else {
-    ks.push({ t: tt, v: value, ease: ease || 'smooth' });
+    const k = { t: tt, v: value, ease: ease || 'smooth' };
+    if (bez) k.bez = [...bez];
+    ks.push(k);
     ks.sort((a, b) => a.t - b.t);
   }
 }
@@ -249,7 +365,8 @@ export function redo() {
 function afterHistory() {
   normalize();
   lastCoalesce = null;
-  if (S.selected && !objById(S.selected)) S.selected = null;
+  S.selection = S.selection.filter((id) => objById(id));
+  if (S.selected && !objById(S.selected)) S.selected = S.selection.length ? S.selection[S.selection.length - 1] : null;
   markDirty();
   scheduleSync();
   emit('project', { external: true });
@@ -284,7 +401,7 @@ async function doSync() {
   if (!needSync) return;
   needSync = false;
   syncing = api.putProject(S.project)
-    .then((r) => { S.issues = r.issues || []; emit('issues'); })
+    .then((r) => { S.issues = r.issues || []; S.problems = r.problems || []; emit('issues'); })
     .catch((e) => emit('error', `Could not update the preview: ${e.message}`))
     .finally(() => { syncing = null; });
   await syncing;
@@ -314,10 +431,13 @@ async function pump() {
   try {
     await synced();
     const scale = S.playing ? (S.lastMs < 70 ? Math.min(S.scale, 0.5) : 0.25) : S.scale;
-    const t = S.time;
-    const r = await api.frame(t, scale);
+    const t = Math.round(S.time * fps()) / fps();
+    const r = await api.frame(t, scale, S.playing);
     if (!S.playing || scale === S.scale) S.lastMs = r.ms;
     else S.lastMs = Math.min(S.lastMs, r.ms * 1.2);
+    S.boxes = r.boxes || [];
+    S.frameIssues = r.issues || [];
+    S.warnings = r.warnings || [];
     emit('frame', r);
   } catch (e) {
     emit('error', `Preview failed: ${e.message}`);
@@ -351,8 +471,11 @@ export function applyState(st, { keepTime = false } = {}) {
   S.ffmpeg = st.ffmpeg;
   S.version = st.version;
   S.issues = st.issues || [];
+  S.problems = st.problems || [];
+  S.recovery = st.recovery || null;
   normalize();
   if (!keepTime) S.time = 0;
   S.time = Math.min(S.time, duration());
+  S.selection = S.selection.filter((id) => objById(id));
   if (S.selected && !objById(S.selected)) S.selected = null;
 }

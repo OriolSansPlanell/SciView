@@ -18,11 +18,56 @@ The editor is a web page served by Python on your own computer; nothing is uploa
 ## Selecting and moving
 
 * Click an object in the preview or its row in the timeline to select it. <kbd>Esc</kbd> selects nothing.
-* Drag text, charts and shapes in the preview to move them. Hold <kbd>Shift</kbd> to move along one axis.
-* Drag empty space (or a 3D object) to orbit the camera; <kbd>Shift</kbd>+drag shifts the 3D scene on screen;
-  scroll to zoom. If the camera is animated, these changes add a camera keyframe at the playhead.
+* <kbd>Shift</kbd>-click adds an object to the selection or takes it out, in the preview and in the timeline.
+  <kbd>Ctrl</kbd>-drag (<kbd>Cmd</kbd> on a Mac) on empty space in the preview selects everything inside a
+  box; <kbd>Ctrl</kbd>+<kbd>A</kbd> selects every object.
+* Drag objects in the preview to move them, 2D and 3D alike. A 3D object moves in the plane facing the camera,
+  so it stays under the mouse; hold <kbd>Shift</kbd> to move along one axis only (the screen axis for 2D
+  objects, the scene axis closest to the drag for 3D ones). Dragging one of several selected objects moves
+  them all.
+* Drag empty space to orbit the camera, or hold <kbd>Alt</kbd> to orbit even over an object;
+  <kbd>Shift</kbd>+drag on empty space shifts the 3D scene on screen; scroll to zoom. If the camera is
+  animated, these changes add a camera keyframe at the playhead.
 * Drag a value's label left or right to change a number (<kbd>Shift</kbd> for big steps, <kbd>Alt</kbd> for
   fine ones). Arrow keys in a number field do the same.
+
+### Several objects
+
+With more than one object selected, the properties panel offers:
+
+* **Arrange**: align left edges, centres or right edges, tops, middles or bottoms, and spread three or more
+  objects so the gaps between them are equal. These use where the objects are in the picture at the
+  playhead.
+* **Stagger**: start each object a set delay after the one before, keyframes included. Objects that start
+  earlier go first, then the order they were added.
+* Values shared by all of them, when they are of one kind: a change applies to every selected object.
+* **Group**, **Duplicate** and **Delete**.
+
+### Groups
+
+A group holds objects that belong together: a panel and the chart on it, the parts of an instrument.
+Select them and press <kbd>Ctrl</kbd>+<kbd>G</kbd>; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> takes
+them out again. The group's members keep all their own values, and the group adds to them:
+
+* **Offset** and **scale** (about the **pivot**) for 2D members, and **position**, **rotation** and
+  **scale** (about the 3D pivot) for 3D members. These can be keyframed like anything else.
+* **Opacity**, **enter and exit effects** and **when it is visible**: a group that fades out fades all its
+  members; members show only while their group does.
+
+Clicking a grouped object in the preview selects its group, so a drag moves the whole group. Double-click
+to select the object inside it; <kbd>Esc</kbd> goes back up to the group. In the timeline, members sit
+under their group's row and the arrow folds them away; moving the group's clip moves its members' clips
+too. To put an object in a group, pick the group under **In group** in its **Timing** section, or drag its
+row just below the group's row. Groups can contain groups.
+
+### Copy and paste
+
+<kbd>Ctrl</kbd>+<kbd>C</kbd>, <kbd>Ctrl</kbd>+<kbd>X</kbd> and <kbd>Ctrl</kbd>+<kbd>V</kbd> copy, cut and
+paste the selection, between films too. A group comes with its members; a curve copied with its chart
+keeps drawing in the copied chart. Pasted objects keep their timing relative to the playhead: an object
+that started a second after the playhead when you copied it starts a second after the playhead where you
+paste it. With a keyframe picked in the timeline, copy takes that keyframe instead, and paste adds it to the
+selected objects at the playhead.
 
 ## Timing
 
@@ -46,7 +91,9 @@ Any number, colour or position can change over time:
 3. Gold diamonds appear on the object's clip. Drag them to retime, click one to jump to it, press
    <kbd>Del</kbd> to delete the selected one.
 4. The **Keyframes** group lists them all; choose how each one eases in (smooth, linear, in, out, in-out,
-   overshoot, hold ...).
+   overshoot, hold ...). Choose **custom** to draw the curve yourself: drag its two handles, type the four
+   numbers or start from a preset. Handles above the box overshoot. The numbers are those of CSS
+   `cubic-bezier()`, so curves can be copied to and from web animation tools.
 
 <kbd>K</kbd> keyframes every animatable value of the selection at once, which is handy before a camera move.
 
@@ -74,6 +121,20 @@ objects, 3D models become 3D models and audio becomes the film's soundtrack. Tab
 text, `.npy`, `.npz`) are used by scatter plots, curves, histograms and point clouds; the column fields suggest
 the names found in the file.
 
+## Problems
+
+A warning sign on a timeline row means something stops that object from drawing as intended: a file that
+is missing, an expression that cannot be read, a chart that no longer exists. Select the object: the
+properties panel says what is wrong and marks the field to fix in gold. The count under the preview lists
+every problem in the film; click one to jump to its object.
+
+## Autosave
+
+Every 30 seconds, and when the editor stops, unsaved changes are written next to the film as a hidden file
+(`.film.sciview.json.autosave`). If the editor stops before you save, the next time you open the film it
+offers to **restore** those changes or **discard** them. Restored changes are not saved until you press
+Save, and saving removes the autosave.
+
 ## Film settings
 
 Select nothing to edit the size, frame rate, duration, background, starfield, vignette, glow strength, font
@@ -88,8 +149,14 @@ colours used across the film: change `teal` once and everything teal follows.
 | <kbd>←</kbd> <kbd>→</kbd> | previous / next frame (<kbd>Shift</kbd>: one second) |
 | <kbd>Home</kbd> <kbd>End</kbd> | start / end |
 | <kbd>K</kbd> | keyframe all values of the selection |
-| <kbd>Del</kbd> | delete the selected keyframe, or the selected object |
+| <kbd>Del</kbd> | delete the selected keyframe, or the selected objects (a group with its members) |
 | <kbd>Ctrl</kbd>+<kbd>D</kbd> | duplicate |
+| <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd> | copy, cut, paste objects or the picked keyframe |
+| <kbd>Ctrl</kbd>+<kbd>G</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | group / ungroup |
+| <kbd>Ctrl</kbd>+<kbd>A</kbd> | select every object |
+| <kbd>Shift</kbd>+click | add to or take out of the selection |
+| double-click | select an object inside its group |
+| <kbd>Esc</kbd> | leave the group, then select nothing |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | undo / redo |
 | <kbd>Ctrl</kbd>+<kbd>S</kbd> | save (<kbd>Shift</kbd>: save as) |
 | <kbd>Ctrl</kbd>+scroll on the timeline | zoom the timeline |

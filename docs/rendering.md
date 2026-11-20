@@ -35,6 +35,13 @@ renders in about a minute or two. Draft at `--scale 0.5` first.
 The editor's preview has three qualities: **Draft** (480 px), **Normal** (960 px) and **Full** (1920 px).
 During playback it switches to a faster quality automatically; pause to see the chosen quality.
 
+Objects that look the same from one frame to the next (no running keyframe or effect, no dependence on
+time, and for 3D objects a still camera) are drawn once into a cached layer and reused, both in the preview
+and when exporting. The cache never changes a pixel: the test suite checks every template against an
+uncached render. It notices changed values, palette and files on disk, and keeps at most 256 MB per
+renderer. While you pause, the editor also renders the next half second in the background, and while you
+play the next three seconds, so scrubbing and playback show cached frames.
+
 ## Sound
 
 Set **Audio** in the film settings (or drop an audio file on the preview) to add narration or music; **Audio

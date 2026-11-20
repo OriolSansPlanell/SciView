@@ -197,7 +197,7 @@ class Equation(Object2D):
         img = render_math(v.tex, size, v.font)
         if img is None:
             why = MATH_ERRORS.get((v.tex, round(float(size), 2), v.font), "unknown error")
-            ctx.warn(f"{self.name}: could not render the formula ({why}); showing it as text")
+            ctx.warn(f"{self.name}: could not render the formula ({why}); showing it as text", "tex")
             return ctx.draw_text(cv, v.tex, v.position[0] + st.dx, v.position[1] + st.dy, v.size, v.color,
                                  align=v.align, valign=v.valign, opacity=a)
         w, h = img.width - 2 * img.pad, img.height - 2 * img.pad

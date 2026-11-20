@@ -41,9 +41,27 @@ enough to diff in git and to generate from other programs.
   sorted by distance to the camera). Each object has:
   * `id` (unique, used by references such as a curve's `axes`), `type`, `name`;
   * `props`: only values that differ from the defaults are written;
-  * `keys`: per property, a list of `{"t": seconds, "v": value, "ease": name}` sorted by time;
+  * `keys`: per property, a list of `{"t": seconds, "v": value, "ease": name}` sorted by time. The ease
+    says how the value moves into that keyframe; `"ease": "bezier"` comes with `"bez": [x1, y1, x2, y2]`,
+    a curve as in CSS `cubic-bezier()` (x1 and x2 between 0 and 1, y1 and y2 may leave that range to
+    overshoot);
   * `start`, `end` (`null` = until the end), `enter` and `exit` effects;
+  * optional `parent`: the id of the group the object belongs to (an object of type `group`). Groups add
+    their transform, opacity, effects and visible span to their members. Members usually sit next to their
+    group in the list, but drawing order is still the list order;
   * optional `visible: false` and `locked: true`.
+
+A group in the list:
+
+```json
+{ "id": "group1", "type": "group", "name": "Step 1",
+  "props": { "offset": [0, 0], "scale": 1.0, "pivot": [80, 170] },
+  "keys": { "opacity": [ { "t": 6, "v": 1 }, { "t": 7, "v": 0.45 } ] } },
+{ "id": "panel1", "type": "panel", "parent": "group1", "props": { "title": "Gray level" } }
+```
+
+Files from SciView 0.1 open unchanged; files using groups or custom curves open in 0.1 with warnings about the
+unknown `group` type and fall back to smooth easing.
 
 Values: numbers, booleans, strings; colours as `"#rrggbb"` or a palette name; vectors as lists; `array`
 properties as lists of numbers or as text (`"1, 2, 3"`).
@@ -51,5 +69,6 @@ properties as lists of numbers or as text (`"1, 2, 3"`).
 ## Robustness
 
 Unknown object types and properties produce warnings (shown by `sciview check` and in the editor) instead of
-errors, so files written by a newer SciView still open. Expressions are parsed and checked, never executed as
+errors, so files written by a newer SciView still open. A `parent` that is missing, is not a group or makes
+groups contain each other in a circle is reported and ignored. Expressions are parsed and checked, never executed as
 Python, so opening a project from someone else is safe.

@@ -143,3 +143,40 @@ def test_nice_ticks():
     assert step == 2 and list(ticks) == [0, 2, 4, 6, 8, 10]
     assert fmt_tick(0.25, 0.25) == "0.25"
     assert math.isclose(nice_ticks(0, 1, 4)[1], 0.25)
+
+
+# ------------------------------------------------------------------ Bézier easing
+def test_cubic_bezier_matches_css():
+    from sciview.engine.easing import BEZIER_PRESETS, cubic_bezier
+    for u in np.linspace(0, 1, 11):
+        assert cubic_bezier(0, 0, 1, 1, u) == pytest.approx(u, abs=1e-6)
+    # CSS "ease" at half time is about 0.8024
+    assert cubic_bezier(*BEZIER_PRESETS["ease"], 0.5) == pytest.approx(0.8024, abs=1e-3)
+    assert cubic_bezier(0.25, 0.1, 0.25, 1, 0) == 0 and cubic_bezier(0.25, 0.1, 0.25, 1, 1) == 1
+    ys = [cubic_bezier(0.42, 0, 0.58, 1, u) for u in np.linspace(0, 1, 101)]
+    assert all(b >= a - 1e-9 for a, b in zip(ys, ys[1:]))           # monotonic
+    assert ys[50] == pytest.approx(0.5, abs=1e-6)                   # symmetric curve
+    # overshoot above 1, and x outside [0, 1] is clamped instead of running time backwards
+    assert max(cubic_bezier(0.3, 1.6, 0.7, 1.4, u) for u in np.linspace(0, 1, 50)) > 1.05
+    assert cubic_bezier(-2, 0, 3, 1, 0.3) == pytest.approx(cubic_bezier(0, 0, 1, 1, 0.3), abs=1e-6)
+    # degenerate flat handles still give a value for every time
+    assert 0 <= cubic_bezier(1, 0, 0, 1, 0.5) <= 1
+    assert ease("bezier", 0.5, (0, 0, 1, 1)) == pytest.approx(0.5)
+    assert ease("bezier", 0.3) == pytest.approx(ease("smooth", 0.3))   # no curve given: smooth
+
+
+def test_bezier_keyframes():
+    import sciview as sv
+    p = sv.Project()
+    o = p.add("rect")
+    o.key("opacity", 0.0, 0.0).key("opacity", 1.0, 1.0, "bezier", (0.42, 0, 0.58, 1))
+    assert o.keys["opacity"][1]["bez"] == [0.42, 0, 0.58, 1]
+    assert o.value_at("opacity", 0.5) == pytest.approx(0.5, abs=1e-6)
+    assert o.value_at("opacity", 0.25) < 0.25
+    o.key("opacity", 2.0, 0.0, "bezier", (2, 0, 9, 1))          # x outside [0, 1] is clamped
+    assert o.keys["opacity"][2]["bez"] == [1.0, 0.0, 1.0, 1.0]
+    o.key("opacity", 3.0, 1.0, "bezier", "nonsense")            # unreadable: falls back to smooth
+    assert o.keys["opacity"][3]["ease"] == "smooth" and "bez" not in o.keys["opacity"][3]
+    # survives a save/load round trip
+    q = sv.Project.from_json(p.to_json())
+    assert q.objects[0].keys["opacity"][1] == {"t": 1.0, "v": 1.0, "ease": "bezier", "bez": [0.42, 0, 0.58, 1]}

@@ -2,7 +2,7 @@
 
 ## Install
 
-SciView needs Python 3.9 or newer. In a terminal:
+SciView needs Python 3.10 or newer. In a terminal:
 
 ```bash
 pip install "sciview[math] @ git+https://github.com/OriolSansPlanell/SciView"

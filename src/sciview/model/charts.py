@@ -6,7 +6,7 @@ import math
 import numpy as np
 
 from ..engine.color import COLORMAPS, apply_colormap
-from ..engine.mathexpr import ExpressionError, evaluate
+from ..engine.mathexpr import ExpressionError, evaluate, uses_time
 from .base import Prop, SceneObject, parse_array, register
 from .objects2d import draw_rotated_text, format_values
 
@@ -151,8 +151,17 @@ class Series(SceneObject):
     def axes_or_warn(self, ctx, v):
         tr = ctx.axes(v.axes)
         if tr is None:
-            ctx.warn(f"{self.name}: choose a chart in 'Axes' (add a Chart axes object first)")
+            ctx.warn(f"{self.name}: choose a chart in 'Axes' (add a Chart axes object first)", "axes")
         return tr
+
+    @staticmethod
+    def clip_box(box, ctx, tr, st):
+        """A box (output pixels) limited to the axes, for a series drawn clipped."""
+        s = ctx.s
+        x0, y0 = (tr.x0 + st.dx) * s, (tr.y0 + st.dy) * s
+        x1, y1 = x0 + tr.w * s, y0 + tr.h * s
+        b = (max(box[0], x0), max(box[1], y0), min(box[2], x1), min(box[3], y1))
+        return b if b[2] >= b[0] and b[3] >= b[1] else None
 
     @staticmethod
     def clip_to(cv, ctx, tr, st, on=True):
@@ -185,6 +194,9 @@ class Curve(Series):
         Prop("clip", "bool", True, group=G_LOOK, help="Hide what falls outside the axes"),
     ]
 
+    def depends_on_time(self) -> bool:
+        return self.props.get("source") == "expression" and uses_time(self.props.get("expression", ""))
+
     def draw(self, cv, ctx, v, st):
         tr = self.axes_or_warn(ctx, v)
         if tr is None:
@@ -201,7 +213,7 @@ class Curve(Series):
             try:
                 ys = np.broadcast_to(evaluate(v.expression, x=xs, t=ctx.t), xs.shape).astype(np.float64)
             except ExpressionError as exc:
-                ctx.warn(f"{self.name}: {exc}")
+                ctx.warn(f"{self.name}: {exc}", "expression")
                 return None
         else:
             xs, ys = self.xy_data(ctx, v)
@@ -226,7 +238,8 @@ class Curve(Series):
         finally:
             if clipped:
                 cv.pop_clip()
-        return (pts[:, 0].min(), pts[:, 1].min(), pts[:, 0].max(), pts[:, 1].max())
+        box = (pts[:, 0].min(), pts[:, 1].min(), pts[:, 0].max(), pts[:, 1].max())
+        return self.clip_box(box, ctx, tr, st) if clipped else box
 
 
 @register
@@ -425,6 +438,9 @@ class Marker(Series):
         Prop("glow", "number", 1.0, min=0, max=4, step=0.05, group=G_LOOK),
     ]
 
+    def depends_on_time(self) -> bool:
+        return uses_time(self.props.get("follow", ""))
+
     def draw(self, cv, ctx, v, st):
         tr = self.axes_or_warn(ctx, v)
         if tr is None:
@@ -436,7 +452,7 @@ class Marker(Series):
             try:
                 y = float(np.asarray(evaluate(v.follow, x=x, t=ctx.t)).ravel()[0])
             except ExpressionError as exc:
-                ctx.warn(f"{self.name}: {exc}")
+                ctx.warn(f"{self.name}: {exc}", "follow")
         X, Y = tr.map(x, y)
         X, Y = float(X) + st.dx, float(Y) + st.dy
         s = ctx.s

@@ -17,7 +17,7 @@ Open the graphical editor with ``sciview edit`` in a terminal.
 from .model import REGISTRY, CameraRig, Project, Prop, SceneObject, all_schemas
 from .render import Renderer
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["Project", "SceneObject", "Prop", "CameraRig", "Renderer", "REGISTRY", "all_schemas",
            "object_types", "load", "__version__"]

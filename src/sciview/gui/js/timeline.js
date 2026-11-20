@@ -1,5 +1,8 @@
 // Timeline: one row per object (top-most first), clips for visibility, gold diamonds for keyframes.
-import { S, on, emit, commit, objById, schemaOf, span, keyTimes, duration, fps, breakCoalesce } from './state.js';
+import {
+  S, on, emit, commit, objById, schemaOf, span, keyTimes, duration, fps, breakCoalesce, select, isSelected,
+  isGroup, children, descendants, issuesFor,
+} from './state.js';
 import { el, drag, clamp } from './ui.js';
 import { icon } from './icons.js';
 
@@ -43,43 +46,86 @@ export function renderTimeline() {
   const width = PAD * 2 + duration() * pps;
   rowsEl.innerHTML = '';
   rowsEl.style.width = `${labelW() + width}px`;
-  rowsEl.append(makeRow(S.project.camera, width));
-  const objs = [...S.project.objects].reverse();
-  for (const o of objs) rowsEl.append(makeRow(o, width));
-  if (!objs.length) rowsEl.append(el('div', { class: 'tl-empty' }, 'Objects you add appear here. Drag clips to change when they appear.'));
+  rowsEl.append(makeRow(S.project.camera, width, 0));
+  const ids = new Set(S.project.objects.map((o) => o.id));
+  // top-level objects: no parent, or a parent that is not a usable group
+  const isTop = (o) => !o.parent || !ids.has(o.parent) || !isGroup(objById(o.parent));
+  const shown = new Set();
+  const addRows = (list, depth) => {
+    for (const o of [...list].reverse()) {
+      if (shown.has(o.id)) continue;
+      shown.add(o.id);
+      rowsEl.append(makeRow(o, width, depth));
+      if (isGroup(o) && !S.collapsed.has(o.id)) addRows(children(o.id), depth + 1);
+    }
+  };
+  addRows(S.project.objects.filter(isTop), 0);
+  // objects in groups that contain each other in a circle have no top: list them anyway
+  const inCycle = (o) => {
+    const seen = new Set([o.id]);
+    let x = o;
+    while (x.parent && ids.has(x.parent) && isGroup(objById(x.parent))) {
+      if (seen.has(x.parent)) return true;
+      seen.add(x.parent);
+      x = objById(x.parent);
+    }
+    return false;
+  };
+  const left = S.project.objects.filter((o) => !shown.has(o.id) && inCycle(o));
+  if (left.length) addRows(left, 0);
+  if (!S.project.objects.length) rowsEl.append(el('div', { class: 'tl-empty' }, 'Objects you add appear here. Drag clips to change when they appear.'));
   placePlayhead();
   drawRuler();
 }
 
-function makeRow(o, width) {
+function makeRow(o, width, depth) {
   const sc = schemaOf(o);
   const isCam = o.type === 'camera';
-  const row = el('div', { class: `tl-row ${S.selected === o.id ? 'sel' : ''} ${o.visible === false ? 'hidden-obj' : ''}`, dataset: { id: o.id } });
+  const group = isGroup(o);
+  const problems = isCam ? [] : issuesFor(o.id);
+  const row = el('div', {
+    class: `tl-row ${isSelected(o.id) ? 'sel' : ''} ${S.selected === o.id ? 'primary' : ''} ${o.visible === false ? 'hidden-obj' : ''} ${group ? 'is-group' : ''}`,
+    dataset: { id: o.id },
+  });
   const grip = isCam ? el('span', { style: { width: '8px' } }) : el('span', { class: 'grip', title: 'Drag to change the drawing order' });
   const eye = isCam ? null : el('button', {
     class: `icon-btn small eye ${o.visible === false ? 'off' : ''}`, title: o.visible === false ? 'Show' : 'Hide',
     'aria-label': o.visible === false ? `Show ${o.name}` : `Hide ${o.name}`, html: icon(o.visible === false ? 'eyeoff' : 'eye'),
   });
-  const label = el('div', { class: 'tl-label', title: `${o.name} (${sc ? sc.label : o.type})` },
-    grip, el('span', { class: 'ic', html: icon(sc ? sc.icon : 'square') }), el('span', { class: 'nm' }, o.name || o.id), eye);
-  label.addEventListener('click', (e) => { if (!e.target.closest('.eye')) emit('select', o.id); });
+  const twist = group ? el('button', {
+    class: `icon-btn small twist ${S.collapsed.has(o.id) ? 'closed' : ''}`, 'aria-label': S.collapsed.has(o.id) ? `Expand ${o.name}` : `Collapse ${o.name}`,
+    'aria-expanded': String(!S.collapsed.has(o.id)), html: icon('down'),
+  }) : el('span', { class: 'twist-space' });
+  const badge = problems.length ? el('span', { class: 'warn-badge', title: problems.map((p) => p.message).join('\n'), html: icon('warning') }) : null;
+  const label = el('div', { class: 'tl-label', title: `${o.name} (${sc ? sc.label : o.type})`, style: { paddingLeft: `${8 + depth * 16}px` } },
+    grip, twist, el('span', { class: 'ic', html: icon(sc ? sc.icon : 'square') }), el('span', { class: 'nm' }, o.name || o.id), badge, eye);
+  label.addEventListener('click', (e) => {
+    if (e.target.closest('.eye') || e.target.closest('.twist')) return;
+    if (e.shiftKey || e.metaKey || e.ctrlKey) select(o.id, 'toggle');
+    else select(o.id);
+  });
+  if (twist && group) twist.addEventListener('click', () => {
+    if (S.collapsed.has(o.id)) S.collapsed.delete(o.id); else S.collapsed.add(o.id);
+    renderTimeline();
+  });
   if (eye) eye.addEventListener('click', () => commit(() => { const x = objById(o.id); x.visible = x.visible === false; }, { source: 'timeline' }));
   if (!isCam) grip.addEventListener('pointerdown', (e) => reorderDrag(e, o.id, row));
 
   const track = el('div', { class: 'tl-track', style: { width: `${width}px` } });
   track.addEventListener('pointerdown', (e) => {
     if (e.target !== track) return;
-    emit('select', o.id);
+    if (e.shiftKey) select(o.id, 'toggle'); else select(o.id);
     scrubFrom(e);
   });
   if (!isCam) {
     const [s, e] = span(o);
-    const clip = el('div', { class: `clip ${catClass[sc ? sc.category : ''] || ''}`, style: { left: `${xOf(s)}px`, width: `${Math.max(4, (e - s) * pps)}px` } });
+    const clip = el('div', { class: `clip ${group ? 'cat-group' : catClass[sc ? sc.category : ''] || ''}`, style: { left: `${xOf(s)}px`, width: `${Math.max(4, (e - s) * pps)}px` } });
     const ein = o.enter && o.enter.effect !== 'none' ? o.enter.duration : 0;
     const eout = o.end != null && o.exit && o.exit.effect !== 'none' ? o.exit.duration : 0;
     if (ein > 0) clip.append(el('div', { class: 'ramp in', style: { width: `${Math.min(ein, e - s) * pps}px` } }));
     if (eout > 0) clip.append(el('div', { class: 'ramp out', style: { width: `${Math.min(eout, e - s) * pps}px` } }));
-    const text = o.type === 'caption' || o.type === 'title' || o.type === 'text' ? (o.props.text ?? '') : '';
+    let text = o.type === 'caption' || o.type === 'title' || o.type === 'text' ? (o.props.text ?? '') : '';
+    if (group) text = `${descendants(o.id).length} objects`;
     clip.append(el('div', { class: 'txt' }, String(text).replace(/\n/g, ' ')));
     const l = el('div', { class: 'edge l', title: 'Drag to change when it appears' });
     const r = el('div', { class: 'edge r', title: 'Drag to change when it disappears' });
@@ -100,27 +146,36 @@ function makeRow(o, width) {
 // ------------------------------------------------------------------ interactions
 function clipDrag(ev, id, mode) {
   ev.stopPropagation();
-  emit('select', id);
-  const o0 = JSON.parse(JSON.stringify(objById(id)));
+  if (ev.shiftKey) { select(id, 'toggle'); return; }
+  if (!isSelected(id)) select(id);
+  // moving one selected clip moves every selected clip (and a group's members with it)
+  const ids = mode === 'move' ? movingIds(id) : [id];
+  const starts = Object.fromEntries(ids.map((x) => [x, JSON.parse(JSON.stringify(objById(x)))]));
+  const o0 = starts[id];
   const [s0, e0] = span(o0);
+  const minStart = Math.min(...ids.map((x) => span(starts[x])[0]));
   const tag = `clip-${id}-${Date.now()}`;
   breakCoalesce();
   drag(ev, (dx) => {
     const dt = dx / pps;
     commit(() => {
-      const o = objById(id);
       if (mode === 'move') {
-        const len = e0 - s0;
-        let ns = snap(s0 + dt);
-        ns = clamp(ns, 0, Math.max(0, duration() - 0.05));
-        const shift = ns - s0;
-        o.start = ns;
-        o.end = o0.end == null ? null : Math.min(duration(), ns + len);
-        o.keys = JSON.parse(JSON.stringify(o0.keys || {}));
-        for (const ks of Object.values(o.keys)) for (const k of ks) k.t = Math.round((k.t + shift) * fps()) / fps();
+        let shift = snap(s0 + dt) - s0;
+        shift = Math.max(shift, -minStart);
+        for (const x of ids) {
+          const o = objById(x), a = starts[x];
+          if (!o) continue;
+          const [as, ae] = span(a);
+          o.start = Math.max(0, Math.min(as + shift, duration() - 0.05));
+          o.end = a.end == null ? null : Math.min(duration(), ae + shift);
+          o.keys = JSON.parse(JSON.stringify(a.keys || {}));
+          for (const ks of Object.values(o.keys)) for (const k of ks) k.t = Math.round((k.t + shift) * fps()) / fps();
+        }
       } else if (mode === 'start') {
+        const o = objById(id);
         o.start = clamp(snap(s0 + dt), 0, e0 - 0.05);
       } else {
+        const o = objById(id);
         const ne = clamp(snap(e0 + dt), s0 + 0.05, duration());
         o.end = Math.abs(ne - duration()) < 1e-6 && o0.end == null ? null : ne;
       }
@@ -128,9 +183,16 @@ function clipDrag(ev, id, mode) {
   });
 }
 
+function movingIds(id) {
+  const base = isSelected(id) ? S.selection.filter((x) => x !== 'camera') : [id];
+  const out = new Set(base);
+  for (const x of base) if (isGroup(objById(x))) for (const d of descendants(x)) out.add(d.id);
+  return [...out];
+}
+
 function keyDrag(ev, id, t0) {
   ev.stopPropagation();
-  emit('select', id);
+  select(id);
   S.selKey = { id, t: t0 };
   const o0 = JSON.parse(JSON.stringify(objById(id)));
   const tag = `key-${id}-${Date.now()}`;
@@ -176,12 +238,32 @@ function reorderDrag(ev, id, rowEl) {
     rowEl.classList.remove('dragging');
     if (!target || target.id === id) { renderTimeline(); return; }
     commit((p) => {
-      const i = p.objects.findIndex((o) => o.id === id);
-      const [o] = p.objects.splice(i, 1);
-      let j = p.objects.findIndex((x) => x.id === target.id);
-      // rows are shown top-most first, i.e. reversed list order
-      if (target.above) j += 1;
-      p.objects.splice(j, 0, o);
+      const moving = new Set([id, ...(isGroup(objById(id)) ? descendants(id).map((d) => d.id) : [])]);
+      if (moving.has(target.id)) return;
+      const block = p.objects.filter((o) => moving.has(o.id));
+      const rest = p.objects.filter((o) => !moving.has(o.id));
+      const tgt = rest.find((x) => x.id === target.id);
+      let j = rest.indexOf(tgt);
+      let parent = tgt.parent || null;            // a dropped row joins its neighbour's group
+      if (isGroup(tgt) && !target.above) {
+        if (S.collapsed.has(tgt.id)) {
+          // below a collapsed group: under its whole block
+          const inside = new Set(descendants(tgt.id).map((d) => d.id));
+          const first = rest.findIndex((x) => inside.has(x.id));
+          if (first >= 0 && first < j) j = first;
+        } else {
+          parent = tgt.id;                         // just under an open group's row: its top member
+        }
+      } else if (target.above) {
+        j += 1;                                    // rows are shown top-most first (reversed list)
+      }
+      rest.splice(j, 0, ...block);
+      p.objects = rest;
+      const moved = p.objects.find((o) => o.id === id);
+      if (moved) {
+        if (parent === moved.id || descendants(moved.id).some((d) => d.id === parent)) parent = moved.parent || null;
+        moved.parent = parent;
+      }
     }, { source: 'reorder' });
   });
 }

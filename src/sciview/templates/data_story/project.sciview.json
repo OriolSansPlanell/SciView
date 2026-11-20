@@ -86,20 +86,6 @@
         "title": "Gray level",
         "badge": 1
       },
-      "keys": {
-        "opacity": [
-          {
-            "t": 6.0,
-            "v": 1.0,
-            "ease": "smooth"
-          },
-          {
-            "t": 7.0,
-            "v": 0.45,
-            "ease": "smooth"
-          }
-        ]
-      },
       "start": 0.6,
       "end": null,
       "enter": {
@@ -109,75 +95,8 @@
       "exit": {
         "effect": "fade",
         "duration": 0.6
-      }
-    },
-    {
-      "id": "panel2",
-      "type": "panel",
-      "name": "Panel 2",
-      "props": {
-        "position": [
-          700.0,
-          170.0
-        ],
-        "size": [
-          520.0,
-          650.0
-        ],
-        "title": "Attenuation",
-        "badge": 2
       },
-      "keys": {
-        "opacity": [
-          {
-            "t": 12.0,
-            "v": 1.0,
-            "ease": "smooth"
-          },
-          {
-            "t": 13.0,
-            "v": 0.45,
-            "ease": "smooth"
-          }
-        ]
-      },
-      "start": 0.6,
-      "end": null,
-      "enter": {
-        "effect": "fade",
-        "duration": 0.6
-      },
-      "exit": {
-        "effect": "fade",
-        "duration": 0.6
-      }
-    },
-    {
-      "id": "panel3",
-      "type": "panel",
-      "name": "Panel 3",
-      "props": {
-        "position": [
-          1320.0,
-          170.0
-        ],
-        "size": [
-          520.0,
-          650.0
-        ],
-        "title": "Concentration",
-        "badge": 3
-      },
-      "start": 0.6,
-      "end": null,
-      "enter": {
-        "effect": "fade",
-        "duration": 0.6
-      },
-      "exit": {
-        "effect": "fade",
-        "duration": 0.6
-      }
+      "parent": "group1"
     },
     {
       "id": "axes1",
@@ -213,7 +132,8 @@
       "exit": {
         "effect": "fade",
         "duration": 0.6
-      }
+      },
+      "parent": "group1"
     },
     {
       "id": "bars1",
@@ -236,7 +156,8 @@
       "exit": {
         "effect": "fade",
         "duration": 0.6
-      }
+      },
+      "parent": "group1"
     },
     {
       "id": "text1",
@@ -260,7 +181,71 @@
       "exit": {
         "effect": "fade",
         "duration": 0.6
+      },
+      "parent": "group1"
+    },
+    {
+      "id": "group1",
+      "type": "group",
+      "name": "Step 1",
+      "props": {
+        "pivot": [
+          80.0,
+          170.0
+        ]
+      },
+      "keys": {
+        "opacity": [
+          {
+            "t": 6.0,
+            "v": 1.0,
+            "ease": "smooth"
+          },
+          {
+            "t": 7.0,
+            "v": 0.45,
+            "ease": "smooth"
+          }
+        ]
+      },
+      "start": 0.0,
+      "end": null,
+      "enter": {
+        "effect": "none",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "none",
+        "duration": 0.6
       }
+    },
+    {
+      "id": "panel2",
+      "type": "panel",
+      "name": "Panel 2",
+      "props": {
+        "position": [
+          700.0,
+          170.0
+        ],
+        "size": [
+          520.0,
+          650.0
+        ],
+        "title": "Attenuation",
+        "badge": 2
+      },
+      "start": 0.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group2"
     },
     {
       "id": "axes2",
@@ -295,7 +280,8 @@
       "exit": {
         "effect": "fade",
         "duration": 0.6
-      }
+      },
+      "parent": "group2"
     },
     {
       "id": "curve1",
@@ -319,7 +305,8 @@
       "exit": {
         "effect": "fade",
         "duration": 0.6
-      }
+      },
+      "parent": "group2"
     },
     {
       "id": "marker1",
@@ -354,7 +341,8 @@
       "exit": {
         "effect": "fade",
         "duration": 0.6
-      }
+      },
+      "parent": "group2"
     },
     {
       "id": "equation1",
@@ -376,7 +364,71 @@
       "exit": {
         "effect": "fade",
         "duration": 0.6
+      },
+      "parent": "group2"
+    },
+    {
+      "id": "group2",
+      "type": "group",
+      "name": "Step 2",
+      "props": {
+        "pivot": [
+          700.0,
+          170.0
+        ]
+      },
+      "keys": {
+        "opacity": [
+          {
+            "t": 12.0,
+            "v": 1.0,
+            "ease": "smooth"
+          },
+          {
+            "t": 13.0,
+            "v": 0.45,
+            "ease": "smooth"
+          }
+        ]
+      },
+      "start": 0.0,
+      "end": null,
+      "enter": {
+        "effect": "none",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "none",
+        "duration": 0.6
       }
+    },
+    {
+      "id": "panel3",
+      "type": "panel",
+      "name": "Panel 3",
+      "props": {
+        "position": [
+          1320.0,
+          170.0
+        ],
+        "size": [
+          520.0,
+          650.0
+        ],
+        "title": "Concentration",
+        "badge": 3
+      },
+      "start": 0.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group3"
     },
     {
       "id": "axes3",
@@ -411,7 +463,8 @@
       "exit": {
         "effect": "fade",
         "duration": 0.6
-      }
+      },
+      "parent": "group3"
     },
     {
       "id": "curve2",
@@ -434,7 +487,8 @@
       "exit": {
         "effect": "fade",
         "duration": 0.6
-      }
+      },
+      "parent": "group3"
     },
     {
       "id": "marker2",
@@ -456,7 +510,8 @@
       "exit": {
         "effect": "fade",
         "duration": 0.6
-      }
+      },
+      "parent": "group3"
     },
     {
       "id": "text2",
@@ -494,6 +549,28 @@
       },
       "exit": {
         "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group3"
+    },
+    {
+      "id": "group3",
+      "type": "group",
+      "name": "Step 3",
+      "props": {
+        "pivot": [
+          1320.0,
+          170.0
+        ]
+      },
+      "start": 0.0,
+      "end": null,
+      "enter": {
+        "effect": "none",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "none",
         "duration": 0.6
       }
     },

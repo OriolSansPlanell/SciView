@@ -1,5 +1,5 @@
 // Dialogs: start a film, open, save as, export, help.
-import { S, emit, applyState, resetHistory, synced, duration } from './state.js';
+import { S, emit, applyState, resetHistory, synced, duration, select, objById } from './state.js';
 import { api } from './api.js';
 import { el, openModal, toast, fmtTime } from './ui.js';
 import { icon } from './icons.js';
@@ -14,7 +14,7 @@ export function newFilmDialog({ first = false } = {}) {
       const st = await api.newFilm(name);
       applyState(st);
       resetHistory();
-      S.selected = null;
+      select(null);
       close();
       emit('loaded');
     } catch (e) { toast(e.message, 'err'); }
@@ -47,9 +47,10 @@ export async function openPath(path) {
     const st = await api.open(path);
     applyState(st);
     resetHistory();
-    S.selected = null;
+    select(null);
     emit('loaded');
     toast(`Opened ${st.name}`);
+    if (S.recovery) recoveryDialog();
   } catch (e) { toast(`Could not open ${path}: ${e.message}`, 'err'); }
 }
 
@@ -213,8 +214,13 @@ export function helpDialog() {
   const keys = [
     ['Space', 'Play / pause'], ['← →', 'Previous / next frame (Shift: one second)'], ['Home / End', 'Start / end of the film'],
     ['K', 'Keyframe every animatable value of the selection at this time'], ['Del', 'Delete the selected keyframe or object'],
-    ['Ctrl+D', 'Duplicate'], ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'], ['Ctrl+S', 'Save'], ['Esc', 'Select nothing (film settings)'],
-    ['Drag in the preview', 'Move text and shapes; orbit the camera elsewhere (Shift: shift the view)'], ['Scroll in the preview', 'Zoom the camera'],
+    ['Ctrl+D', 'Duplicate'], ['Ctrl+C / Ctrl+X / Ctrl+V', 'Copy, cut, paste objects (or the keyframe picked in the timeline). Pasted objects keep their timing relative to the playhead'],
+    ['Ctrl+G / Ctrl+Shift+G', 'Group the selection / ungroup'], ['Ctrl+A', 'Select every object'],
+    ['Shift-click', 'Add an object to the selection, or take it out (preview and timeline)'],
+    ['Ctrl-drag on empty space', 'Select everything inside a box'], ['Double-click', 'Select an object inside its group'],
+    ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'], ['Ctrl+S', 'Save'], ['Esc', 'Leave the group, then select nothing (film settings)'],
+    ['Drag in the preview', 'Move objects, 2D and 3D (Shift: along one axis); drag empty space to orbit the camera'],
+    ['Alt-drag', 'Orbit the camera even over an object'], ['Shift-drag on empty space', 'Shift the view'], ['Scroll in the preview', 'Zoom the camera'],
     ['Drag a value’s label', 'Change a number (Shift: faster, Alt: finer)'], ['Ctrl+scroll on the timeline', 'Zoom the timeline'],
   ];
   const markup = [
@@ -232,9 +238,51 @@ export function helpDialog() {
 }
 
 export function issuesDialog() {
-  const items = [...new Set([...S.issues, ...S.warnings])];
-  openModal({
+  const seen = new Set();
+  const items = [];
+  for (const p of [...S.problems, ...S.frameIssues]) {
+    if (seen.has(p.message)) continue;
+    seen.add(p.message);
+    items.push(p);
+  }
+  for (const w of S.warnings) if (!seen.has(w)) { seen.add(w); items.push({ id: null, message: w }); }
+  let close;
+  const li = (p) => {
+    const o = p.id ? objById(p.id) : null;
+    return el('li', {}, o ? el('button', { class: 'link', onclick: () => { close(); select(o.id); } }, o.name || o.id) : null, o ? ': ' : '', p.message);
+  };
+  close = openModal({
     title: 'Things to check',
-    body: el('div', {}, el('ul', { class: 'issue-list', style: { paddingLeft: '18px' } }, items.map((i) => el('li', {}, i)))),
+    body: el('div', {}, el('ul', { class: 'issue-list', style: { paddingLeft: '18px' } }, items.map(li)),
+      el('p', { class: 'lead', style: { marginTop: '12px' } }, 'Objects with a problem carry a warning sign in the timeline; the field to fix is marked in the inspector.')),
+  });
+}
+
+// ------------------------------------------------------------------ recovery
+export function recoveryDialog() {
+  const r = S.recovery;
+  if (!r) return;
+  let close;
+  const act = async (action) => {
+    try {
+      const st = await api.recover(action);
+      applyState(st, { keepTime: true });
+      resetHistory();
+      select(null);
+      close();
+      emit('loaded');
+      toast(action === 'restore' ? 'Restored the unsaved changes. Save to keep them.' : 'Discarded the unsaved changes.');
+      if (action !== 'restore' && S.untitled && !S.project.objects.length) newFilmDialog({ first: true });
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  const restore = el('button', { class: 'btn primary', onclick: () => act('restore') }, 'Restore changes');
+  const discard = el('button', { class: 'btn', onclick: () => act('discard') }, 'Discard them');
+  close = openModal({
+    title: 'Restore unsaved changes?',
+    body: el('div', {},
+      el('p', { class: 'lead' }, `SciView found changes to ${S.untitled ? 'an untitled film' : S.name} that were not saved (last kept ${r.time}). This happens when the editor stops before you save.`),
+      el('p', { class: 'help' }, 'Restore opens those changes; the film is not saved until you press Save. Discard deletes them and keeps the saved file.')),
+    footer: [el('span', { class: 'spacer' }), discard, restore],
+    dismissable: false,
   });
 }

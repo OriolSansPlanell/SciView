@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sciview"
-version = "0.1.0"
+version = "0.2.0"
 description = "Make clear, beautiful scientific explainer videos with a visual editor or a few lines of Python."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "src/sciview/fonts/OFL-*.txt"]
 authors = [{ name = "Oriol Sans Planell" }]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 keywords = ["scientific visualization", "animation", "video", "science communication", "explainer", "neutron imaging"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -19,6 +19,14 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Topic :: Multimedia :: Video",
     "Topic :: Scientific/Engineering :: Visualization",
 ]
@@ -62,8 +70,8 @@ markers = ["gui: end-to-end editor tests in a headless browser (needs playwright
 
 [tool.ruff]
 line-length = 120
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
-ignore = ["E501", "B008"]
+ignore = ["E501", "B008", "B905"]
