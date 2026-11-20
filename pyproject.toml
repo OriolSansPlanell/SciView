@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sciview"
+version = "0.1.0"
+description = "Make clear, beautiful scientific explainer videos with a visual editor or a few lines of Python."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "src/sciview/fonts/OFL-*.txt"]
+authors = [{ name = "Oriol Sans Planell" }]
+requires-python = ">=3.9"
+keywords = ["scientific visualization", "animation", "video", "science communication", "explainer", "neutron imaging"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+    "numpy>=1.22",
+    "opencv-python-headless>=4.6",
+    "pillow>=9.2",
+    "imageio-ffmpeg>=0.4.7",
+]
+
+[project.optional-dependencies]
+math = ["matplotlib>=3.5"]
+test = ["pytest>=7", "matplotlib>=3.5"]
+gui-test = ["playwright>=1.40"]
+docs = ["mkdocs>=1.5", "mkdocs-material>=9"]
+all = ["matplotlib>=3.5"]
+
+[project.scripts]
+sciview = "sciview.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/OriolSansPlanell/SciView"
+Documentation = "https://github.com/OriolSansPlanell/SciView/tree/main/docs"
+Issues = "https://github.com/OriolSansPlanell/SciView/issues"
+Changelog = "https://github.com/OriolSansPlanell/SciView/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sciview = [
+    "fonts/*",
+    "gui/*.html", "gui/*.css", "gui/*.svg", "gui/js/*.js",
+    "templates/*/*.json", "templates/*/assets/*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["gui: end-to-end editor tests in a headless browser (needs playwright)", "slow: renders video"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501", "B008"]

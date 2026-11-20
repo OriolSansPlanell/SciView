@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use SciView to communicate your research, please cite it as below."
+title: "SciView: scientific explainer videos from a visual editor or Python"
+abstract: >-
+  SciView is an open-source tool for making scientific explainer videos. Films are built from objects
+  such as particle beams, samples, detectors, charts, equations and captions, timed and keyframed in a
+  browser-based editor or from Python, and rendered to video with a pure NumPy/OpenCV/Pillow renderer.
+type: software
+authors:
+  - family-names: "Sans Planell"
+    given-names: "Oriol"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"   # add your ORCID before the first release
+    # affiliation: "Your institute"
+repository-code: "https://github.com/OriolSansPlanell/SciView"
+license: MIT
+version: "0.1.0"
+date-released: "2026-11-20"
+keywords:
+  - scientific visualization
+  - science communication
+  - animation
+  - video
+  - neutron imaging

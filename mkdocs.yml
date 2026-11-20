@@ -1,0 +1,29 @@
+site_name: SciView
+site_description: Make clear, beautiful scientific explainer videos.
+repo_url: https://github.com/OriolSansPlanell/SciView
+edit_uri: edit/main/docs/
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: teal
+    accent: amber
+  features:
+    - navigation.sections
+    - content.code.copy
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - The editor: editor.md
+  - Python guide: python-api.md
+  - Object reference: objects.md
+  - Rendering and sharing: rendering.md
+  - Project file format: file-format.md
+  - Troubleshooting: troubleshooting.md
+markdown_extensions:
+  - tables
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences

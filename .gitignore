@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Docs
+site/
+
+# Renders and scratch films made while developing
+*.mp4
+*.webm
+*.mov
+*.srt
+/frames/
+/*_frames/
+untitled.sciview.json
+*.sciview.json.tmp
+/assets/
+
+# Keep the README animation
+!docs/images/*.gif
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

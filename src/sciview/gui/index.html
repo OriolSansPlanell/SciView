@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SciView</title>
+<link rel="icon" href="/gui/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/gui/style.css">
+</head>
+<body>
+<div id="app" class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M6 11 16 6l10 5v10l-10 5-10-5Z M6 11l10 5 10-5 M16 16v10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        <circle cx="25.5" cy="7" r="2.4" class="brand-dot"/>
+      </svg>
+      <span class="brand-name">SciView</span>
+    </div>
+    <div class="file">
+      <button class="file-name" id="fileName" title="Project file">untitled</button>
+      <span class="dirty" id="dirtyDot" title="Unsaved changes" hidden></span>
+    </div>
+    <nav class="actions">
+      <button class="btn ghost" id="btnNew" title="Start a new film">New</button>
+      <button class="btn ghost" id="btnOpen" title="Open a project file">Open</button>
+      <button class="btn ghost" id="btnSave" title="Save (Ctrl+S)">Save</button>
+      <span class="sep"></span>
+      <button class="icon-btn" id="btnUndo" title="Undo (Ctrl+Z)" data-icon="undo"></button>
+      <button class="icon-btn" id="btnRedo" title="Redo (Ctrl+Shift+Z)" data-icon="redo"></button>
+      <span class="sep"></span>
+      <button class="icon-btn" id="btnHelp" title="Shortcuts and text markup (?)" data-icon="help"></button>
+      <button class="btn primary" id="btnExport" title="Render the film to a video file">Export video</button>
+    </nav>
+  </header>
+
+  <aside class="library" id="library" aria-label="Add objects">
+    <div class="panel-head">
+      <h2>Add</h2>
+      <input id="libSearch" class="search" type="search" placeholder="Find an object" aria-label="Find an object">
+    </div>
+    <div class="library-list" id="libraryList"></div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="viewport" id="viewport">
+      <div class="frame-wrap" id="frameWrap">
+        <img id="frame" alt="Preview of the current frame" draggable="false">
+        <canvas id="overlay"></canvas>
+        <div class="busy" id="busy" hidden></div>
+      </div>
+      <div class="drop-hint" id="dropHint" hidden>Drop images, data tables, 3D models or audio to add them</div>
+    </div>
+    <div class="transport" id="transport">
+      <div class="tgroup">
+        <button class="icon-btn" id="btnStart" title="Go to start (Home)" data-icon="start"></button>
+        <button class="icon-btn" id="btnPrev" title="Previous frame (←)" data-icon="prev"></button>
+        <button class="icon-btn play" id="btnPlay" title="Play / pause (Space)" data-icon="play"></button>
+        <button class="icon-btn" id="btnNext" title="Next frame (→)" data-icon="next"></button>
+        <button class="icon-btn" id="btnEnd" title="Go to end (End)" data-icon="end"></button>
+        <button class="icon-btn toggle" id="btnLoop" title="Loop playback" data-icon="loop" aria-pressed="true"></button>
+      </div>
+      <div class="timecode"><input id="timeInput" aria-label="Current time in seconds" spellcheck="false"><span class="of">/</span><span id="durLabel">10.00</span><span class="unit">s</span></div>
+      <div class="tgroup right">
+        <span class="issues" id="issues" hidden><button class="link warn" id="btnIssues"></button></span>
+        <span class="render-ms" id="renderMs" title="Time to render the last preview frame"></span>
+        <label class="quality">Preview
+          <select id="quality" aria-label="Preview quality">
+            <option value="0.25">Draft</option>
+            <option value="0.5" selected>Normal</option>
+            <option value="1">Full</option>
+          </select>
+        </label>
+        <button class="icon-btn" id="btnSnap" title="Save this frame as a PNG image" data-icon="snapshot"></button>
+      </div>
+    </div>
+  </main>
+
+  <aside class="inspector" id="inspector" aria-label="Properties"></aside>
+
+  <section class="timeline" id="timeline" aria-label="Timeline">
+    <div class="tl-resize" id="tlResize" title="Drag to resize the timeline"></div>
+    <div class="tl-head">
+      <div class="tl-corner">
+        <span class="tl-title">Timeline</span>
+        <div class="tl-zoom">
+          <button class="icon-btn small" id="tlFit" title="Fit the whole film" data-icon="fit"></button>
+          <input type="range" id="tlZoom" min="10" max="400" value="60" aria-label="Timeline zoom">
+        </div>
+      </div>
+      <div class="tl-ruler" id="tlRuler"><canvas id="rulerCanvas"></canvas></div>
+    </div>
+    <div class="tl-body" id="tlBody">
+      <div class="tl-rows" id="tlRows"></div>
+      <div class="tl-playhead" id="tlPlayhead"></div>
+    </div>
+  </section>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="modal-root" id="modalRoot"></div>
+<input type="file" id="fileInput" hidden multiple>
+<audio id="audio" preload="auto" hidden></audio>
+<script type="module" src="/gui/js/main.js"></script>
+</body>
+</html>

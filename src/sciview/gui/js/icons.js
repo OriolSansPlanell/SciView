@@ -1,0 +1,67 @@
+// Line icons, 24x24, drawn for SciView. stroke = currentColor.
+const P = {
+  // object types
+  cube: '<path d="M4 8 12 4l8 4v8l-8 4-8-4Z"/><path d="M4 8l8 4 8-4M12 12v8"/>',
+  cylinder: '<ellipse cx="12" cy="6" rx="6" ry="2.5"/><path d="M6 6v12c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V6"/>',
+  sphere: '<circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="3.5" ry="8"/><path d="M4 12h16"/>',
+  screen: '<path d="M5 5.5 15 3.5v15l-10 2Z"/><path d="M15 3.5l4 1.5v15l-4-1.5"/>',
+  beam: '<path d="M3 9h7M5 12h9M3 15h7M12 9.5h4M16 12h5M13 14.5h3"/>',
+  arrow3d: '<path d="M4 19 19 5"/><path d="M11 5h8v8"/><path d="M4 19l3-6" opacity=".5"/>',
+  grid: '<path d="M2 18 7 8h10l5 10Z"/><path d="M8.7 8 6 18M15.3 8 18 18M4.5 13h15"/>',
+  points: '<circle cx="6" cy="15" r="1.4"/><circle cx="10" cy="8" r="1.4"/><circle cx="14" cy="13" r="1.4"/><circle cx="18" cy="7" r="1.4"/><circle cx="17" cy="17" r="1.4"/><circle cx="8" cy="19" r="1.4"/>',
+  mesh: '<path d="M12 3 4 8v8l8 5 8-5V8Z"/><path d="M4 8l8 5 8-5M12 13v8M4 16l8-3 8 3M12 3v10"/>',
+  pin: '<path d="M12 21v-5"/><circle cx="12" cy="9" r="5"/><circle cx="12" cy="9" r="1.5"/>',
+  title: '<path d="M5 6h14M12 6v12"/><path d="M8 18h8" opacity=".5"/>',
+  caption: '<rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 17h10"/><path d="M6 5h12v6H6z" opacity=".4"/>',
+  text: '<path d="M6 19 12 5l6 14M8.5 14h7"/>',
+  equation: '<path d="M4 8h5M6.5 5.5v5M4 16h5M14 6l6 6M20 6l-6 6M14 17h6"/>',
+  legend: '<rect x="4" y="5" width="4" height="4" rx="1"/><rect x="4" y="15" width="4" height="4" rx="1"/><path d="M11 7h9M11 17h9"/>',
+  axes: '<path d="M4 3v17h17"/><path d="M8 16l3-5 3 2 5-7" opacity=".5"/>',
+  curve: '<path d="M4 4v16h16"/><path d="M6 6c3 0 4 11 7 11s3-6 7-6"/>',
+  scatter: '<path d="M4 4v16h16"/><circle cx="9" cy="14" r="1.2"/><circle cx="12" cy="10" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="17" cy="7" r="1.2"/><circle cx="10" cy="8" r="1.2"/>',
+  bars: '<path d="M4 20h16"/><rect x="6" y="11" width="3" height="9"/><rect x="11" y="6" width="3" height="14"/><rect x="16" y="14" width="3" height="6"/>',
+  histogram: '<path d="M3 20h18"/><path d="M4 20v-3h3v-6h3V5h3v8h3v4h3v3"/>',
+  marker: '<path d="M4 4v16h16"/><circle cx="14" cy="9" r="2.5"/><path d="M14 11.5V20M4 9h7.5" stroke-dasharray="2 2"/>',
+  guide: '<path d="M4 4v16h16"/><path d="M13 3v18"/><path d="M6 15c3-1 4-7 13-8" opacity=".5"/>',
+  panel: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="7.5" cy="8.5" r="1.5"/><path d="M11 8.5h6"/>',
+  rect: '<rect x="4" y="6" width="16" height="12" rx="1.5"/>',
+  ellipse: '<ellipse cx="12" cy="12" rx="8.5" ry="6"/>',
+  arrow: '<path d="M4 17C9 17 13 9 19 7"/><path d="M14 5.5 19 7l-2 4.6"/>',
+  image: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4 4 3 3-2 4 3"/>',
+  camera: '<rect x="3" y="7" width="13" height="10" rx="2"/><path d="M16 10.5 21 8v8l-5-2.5"/>',
+  square: '<rect x="5" y="5" width="14" height="14" rx="2"/>',
+  // interface
+  play: '<path d="M8 5.5v13l10.5-6.5Z" fill="currentColor"/>',
+  pause: '<path d="M8 5.5v13M16 5.5v13" stroke-width="3"/>',
+  start: '<path d="M6 5v14M18 6l-9 6 9 6Z"/>',
+  end: '<path d="M18 5v14M6 6l9 6-9 6Z"/>',
+  prev: '<path d="M15 6l-6 6 6 6"/>',
+  next: '<path d="M9 6l6 6-6 6"/>',
+  loop: '<path d="M17 4l3 3-3 3"/><path d="M4 12V10a3 3 0 0 1 3-3h13M7 20l-3-3 3-3"/><path d="M20 12v2a3 3 0 0 1-3 3H4"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7v.5"/><circle cx="12" cy="17" r=".6" fill="currentColor"/>',
+  snapshot: '<path d="M4 8h3l2-2.5h6L17 8h3v11H4Z"/><circle cx="12" cy="13" r="3.5"/>',
+  fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff: '<path d="M3 3l18 18"/><path d="M10.5 6c.5-.1 1-.1 1.5-.1 6 0 9.5 6.1 9.5 6.1a17 17 0 0 1-3 3.7M6.6 6.9A16.7 16.7 0 0 0 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.2-1"/>',
+  trash: '<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/>',
+  duplicate: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+  diamond: '<path d="M12 3l9 9-9 9-9-9Z" fill="currentColor" stroke="none"/>',
+  diamondo: '<path d="M12 4l8 8-8 8-8-8Z"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5M4 16v4h16v-4"/>',
+  film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
+  up: '<path d="M6 15l6-6 6 6"/>',
+  down: '<path d="M6 9l6 6 6-6"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+};
+
+export function icon(name, cls = '') {
+  const body = P[name] || P.square;
+  return `<svg viewBox="0 0 24 24" class="${cls}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+}
+
+export function hydrateIcons(root = document) {
+  root.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = icon(el.dataset.icon); });
+}
