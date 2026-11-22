@@ -1,4 +1,4 @@
-"""Command line: ``sciview edit | render | still | new | check | templates | subtitles | info``."""
+"""Command line: ``sciview edit | render | still | new | check | templates | subtitles | mcp | info``."""
 from __future__ import annotations
 
 import argparse
@@ -108,6 +108,25 @@ def cmd_subtitles(a) -> int:
     return 0
 
 
+def cmd_mcp(a) -> int:
+    from .agent.mcp import EditorBackend, FileBackend, serve_stdio
+    scope = {}
+    if a.time:
+        scope["time"] = [float(a.time[0]), float(a.time[1])]
+    if a.ids:
+        scope["ids"] = [x.strip() for x in a.ids.split(",") if x.strip()]
+    if a.editor:
+        backend = EditorBackend(a.editor, scope)
+    elif a.project:
+        backend = FileBackend(a.project, scope, autosave=not a.no_save)
+    else:
+        print("error: give a project file, or --editor URL for a running editor", file=sys.stderr)
+        return 2
+    print(f"SciView {__version__} MCP server ready ({'editor ' + a.editor if a.editor else a.project})", file=sys.stderr)
+    serve_stdio(backend)
+    return 0
+
+
 def cmd_info(a) -> int:
     import platform
 
@@ -186,6 +205,14 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("project")
     st.add_argument("-o", "--output")
     st.set_defaults(func=cmd_subtitles)
+
+    m = sub.add_parser("mcp", help="let an AI assistant build the film (MCP server on stdin/stdout)")
+    m.add_argument("project", nargs="?", help="project file to edit (saved after every change)")
+    m.add_argument("--editor", help="drive a running editor instead, e.g. http://localhost:8765")
+    m.add_argument("--time", type=float, nargs=2, metavar=("START", "END"), help="only change this time window")
+    m.add_argument("--ids", help="only change these objects (comma-separated ids) and new ones")
+    m.add_argument("--no-save", action="store_true", help="file mode: do not save after each change")
+    m.set_defaults(func=cmd_mcp)
 
     i = sub.add_parser("info", help="versions, ffmpeg location and object types")
     i.set_defaults(func=cmd_info)

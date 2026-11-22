@@ -393,7 +393,8 @@ def test_recovery_dialog_restores_unsaved_changes(open_editor, tmp_path):
     assert any(o.name == "Unsaved title" for o in sv.Project.load(p.path).objects)
 
 
-@pytest.mark.parametrize("template", ["Step-by-step analysis", "Imaging beamline", "3D structure"])
+@pytest.mark.parametrize("template", ["Step-by-step analysis", "Imaging beamline", "3D structure", "Tomography",
+                                      "Lenses and mirrors"])
 def test_templates_open_without_errors(open_editor, template):
     ed = open_editor()
     ed.page.get_by_text(template).click()
@@ -420,3 +421,103 @@ def test_broken_groups_still_show_every_object(open_editor, tmp_path):
     assert page.locator(".tl-row .warn-badge").count() >= 3
     ed.row("Lost").click()
     assert page.locator("#inspector .cell.has-issue").count() == 1      # "In group" is marked
+
+
+# ------------------------------------------------------------------ 0.3: science objects, data, agents
+NEW_TYPES = ["Volume (3D image)", "Molecule", "3D scale bar", "Heatmap", "Colour bar", "Error bars", "Uncertainty band",
+             "Fitted curve", "Spectrum", "2D histogram", "Vector field", "Streamlines", "Matplotlib figure", "Sinogram",
+             "Back-projection", "Scale bar", "Points into a chart", "Lens", "Mirror", "Light rays", "Wavefronts"]
+
+
+def test_new_object_types_add_from_the_library(open_editor, tmp_path):
+    p = sv.Project(path=tmp_path / "n.sciview.json", duration=4)
+    p.save()
+    ed = open_editor(p)
+    page = ed.page
+    page.wait_for_selector(".lib-item")
+    assert {"Imaging", "Optics"} <= set(page.locator(".lib-group h3, .lib-cat, .lib-head").all_text_contents())
+    import re
+    for label in NEW_TYPES:
+        page.locator(".lib-item", has_text=re.compile(f"^\\s*{re.escape(label)}\\s*$")).first.click()
+        ed.settle(150)
+        assert page.locator("#inspector .row").count() > 5, label
+    ed.settle(800)
+    assert sorted(o.LABEL for o in ed.project.objects) == sorted(NEW_TYPES)
+    # a reference to any object lists them with their kind; the scale bar can point at the sinogram
+    page.locator(".tl-label", has=page.locator(".nm", has_text=re.compile("^Scale bar$"))).first.click()
+    sel = page.locator("#inspector select[aria-label='Reference']")
+    options = sel.locator("option").all_text_contents()
+    assert any("(Sinogram)" in o for o in options) and not any(o.startswith("Scale bar") for o in options)
+
+
+def test_data_tracks_and_file_sequences_in_the_inspector(open_editor, tmp_path):
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "log.csv").write_text("t,T\n0,0\n4,1\n", encoding="utf-8")
+    frames = []
+    for i in range(3):
+        f = tmp_path / f"step_{i + 1}.png"
+        from PIL import Image
+        Image.fromarray(np.full((8, 8), 80 * i, np.uint8)).save(f)
+        frames.append(str(f))
+    p = sv.Project(path=tmp_path / "d.sciview.json", duration=4)
+    p.add("text", name="Counter", text="{value:.2f}", enter="none")
+    p.add("image", name="Scan", enter="none")
+    p.save()
+    ed = open_editor(p)
+    page = ed.page
+    page.wait_for_selector(".tl-row")
+    ed.row("Counter").click()
+    page.locator("#inspector .track-add select").select_option("value")
+    page.locator("#inspector .track-add button").click()
+    ed.settle(300)
+    page.locator("#inspector .track select").first.select_option("assets/log.csv")
+    ed.settle(300)
+    col = page.locator("#inspector .track input[aria-label^='Value column']")
+    col.fill("T")
+    col.press("Enter")
+    ed.settle(500)
+    obj = ed.project.find("text1")
+    assert obj.tracks["value"]["data"] == "assets/log.csv" and obj.tracks["value"]["column"] == "T"
+    assert page.locator("#inspector .row.tracked").count() == 1
+    assert obj.track_value("value", 2.0, ed.srv.session.renderer.assets) == pytest.approx(0.5)
+    page.locator("#inspector .track .icon-btn").click()        # remove it again
+    ed.settle(400)
+    assert not ed.project.find("text1").tracks
+    # several files uploaded at once become a sequence
+    ed.row("Scan").click()
+    with page.expect_file_chooser() as fc:
+        page.locator("#inspector .row", has_text="Image").locator(".icon-btn[title^='Upload']").first.click()
+    fc.value.set_files(frames)
+    ed.settle(1200)
+    assert ed.project.find("image1").props["image"] == "assets/step_*.png"
+    assert page.locator("#inspector .ctl .pattern").first.is_visible()
+
+
+def test_agent_changes_appear_live_and_undo_in_one_step(open_editor, tmp_path):
+    from sciview.agent.mcp import EditorBackend
+    p = sv.Project(path=tmp_path / "a.sciview.json", duration=4)
+    p.add("title", name="Title", text="Hello", enter="none")
+    p.save()
+    ed = open_editor(p)
+    page = ed.page
+    page.wait_for_selector(".tl-row")
+    agent = EditorBackend(ed.url)
+    oid = agent.call("add_object", {"type": "caption", "name": "From the assistant", "props": {"text": "Hi"}})["id"]
+    page.wait_for_selector(".tl-label >> text=From the assistant", timeout=5000)
+    page.wait_for_selector(".toast >> text=Ctrl+Z", timeout=5000)
+    agent.call("set_property", {"id": oid, "name": "size", "value": 44})
+    ed.settle(1800)                                            # the editor checks for changes every 1.2 s
+    page.keyboard.press("Control+z")                           # the size change
+    ed.settle(600)
+    assert ed.project.find(oid).props["size"] != 44
+    page.keyboard.press("Control+z")                           # the new caption
+    ed.settle(600)
+    assert ed.project.find(oid) is None
+    assert page.locator(".tl-label >> text=From the assistant").count() == 0
+    # the person's own edits keep working afterwards and the agent sees them
+    page.keyboard.press("Control+Shift+z")
+    ed.settle(600)
+    assert ed.project.find(oid) is not None
+    agent.call("set_timing", {"id": oid, "start": 1.0})
+    ed.settle(1800)
+    assert ed.project.find(oid).start == 1.0

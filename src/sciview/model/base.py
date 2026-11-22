@@ -41,8 +41,9 @@ class Prop:
     options: tuple = ()
     animatable: bool | None = None
     help: str = ""
-    accept: str = ""   # asset kind filter for kind='asset': image, table, mesh, audio
+    accept: str = ""   # asset kind filter for kind='asset': image, table, mesh, audio, volume, molecule
     ref: str = ""      # referenced object type for kind='ref'
+    expr: bool | str = False  # a math expression, checked by Project.problems(); "x,y,t" names its variables
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS:
@@ -59,6 +60,8 @@ class Prop:
             v = getattr(self, k)
             if v not in (None, ""):
                 d[k] = v
+        if self.expr:
+            d["expr"] = self.expr if isinstance(self.expr, str) else "x,t"
         if self.options:
             d["options"] = list(self.options)
         return d
@@ -198,6 +201,7 @@ class SceneObject:
     IS_3D: ClassVar[bool] = False
     HAS_LABEL: ClassVar[bool] = True        # 3D objects get the Label property group
     HAS_PROGRESS: ClassVar[bool] = False    # supports the 'draw' effect
+    REQUIRED_REFS: ClassVar[tuple[str, ...]] = ()   # reference properties that must point at an object
     TEXTUAL: ClassVar[bool] = False         # supports the 'typewriter' effect
     PROPS: ClassVar[list[Prop]] = []
     DEFAULT_ENTER: ClassVar[str] = "fade"
@@ -209,7 +213,7 @@ class SceneObject:
     def __init__(self, id: str | None = None, name: str | None = None, props: dict | None = None,
                  keys: dict | None = None, start: float = 0.0, end: float | None = None,
                  enter: dict | None = None, exit: dict | None = None, visible: bool = True,
-                 locked: bool = False, parent: str | None = None, **kwargs):
+                 locked: bool = False, parent: str | None = None, tracks: dict | None = None, **kwargs):
         self.id = id or f"{self.TYPE}{next(_id_counter)}"
         self.name = name or self.LABEL
         self.parent: str | None = parent or None
@@ -226,8 +230,14 @@ class SceneObject:
         self.visible = bool(visible)
         self.locked = bool(locked)
         self.warnings: list[str] = []
+        self.tracks: dict[str, dict] = {}
         for k, v in (props or {}).items():
             self.set(k, v, strict=False)
+        for k, tr in (tracks or {}).items():
+            try:
+                self.track(k, **tr)
+            except (KeyError, ValueError, TypeError) as exc:
+                self.warnings.append(f"{self.name}: ignored the data track of {k!r} ({exc})")
         for k, ks in (keys or {}).items():
             for kf in ks:
                 try:
@@ -334,6 +344,58 @@ class SceneObject:
             self.keys.pop(name, None)
         return self
 
+    def track(self, name: str, data: str, column: str = "", time: str = "t", scale: float = 1.0,
+              offset: float = 0.0, time_scale: float = 1.0, time_offset: float = 0.0,
+              smooth: bool = True) -> SceneObject:
+        """Drive a property from table columns over time.
+
+        At film time ``t`` the table time is ``(t - time_offset) * time_scale``; the value is the
+        ``column`` interpolated there (``smooth=False`` holds each row's value), times ``scale``
+        plus ``offset``. A vec2/vec3 property takes two or three comma-separated columns.
+        Tracks override keyframes of the same property.
+        """
+        p = self.prop_map().get(name)
+        if p is None:
+            raise KeyError(f"{self.TYPE} has no property {name!r}")
+        if p.kind not in ("number", "int", "vec2", "vec3"):
+            raise ValueError(f"property {name!r} ({p.kind}) cannot follow a data column")
+        cols = [c.strip() for c in str(column).split(",") if c.strip()]
+        need = {"vec2": 2, "vec3": 3}.get(p.kind, 1)
+        if len(cols) != need:
+            raise ValueError(f"{name!r} needs {need} column{'s' if need > 1 else ''}, got {column!r}")
+        self.tracks[name] = {"data": str(data), "column": ", ".join(cols), "time": str(time or "t"),
+                             "scale": float(scale), "offset": float(offset), "time_scale": float(time_scale),
+                             "time_offset": float(time_offset), "smooth": bool(smooth)}
+        return self
+
+    def untrack(self, name: str) -> SceneObject:
+        self.tracks.pop(name, None)
+        return self
+
+    def track_value(self, name: str, t: float, assets) -> Any:
+        """The value a data track gives at film time t (raises AssetError if the file is unusable)."""
+        tr = self.tracks[name]
+        p = self.prop_map()[name]
+        tt = assets.column(tr["data"], tr["time"])
+        tq = (float(t) - tr["time_offset"]) * tr["time_scale"]
+        order = np.argsort(tt, kind="stable")
+        tt = tt[order]
+        out = []
+        for c in tr["column"].split(","):
+            col = assets.column(tr["data"], c.strip())[order]
+            ok = np.isfinite(tt) & np.isfinite(col)
+            if not ok.any():
+                raise ValueError(f"column {c.strip()!r} of {tr['data']} has no numbers")
+            if tr.get("smooth", True):
+                val = float(np.interp(tq, tt[ok], col[ok]))
+            else:
+                i = int(np.searchsorted(tt[ok], tq, side="right")) - 1
+                val = float(col[ok][min(max(i, 0), int(ok.sum()) - 1)])
+            out.append(val * tr["scale"] + tr["offset"])
+        if p.kind == "int":
+            return int(round(out[0]))
+        return out[0] if p.kind == "number" else out
+
     def value_at(self, name: str, t: float, color_fn=None) -> Any:
         ks = self.keys.get(name)
         if not ks:
@@ -352,8 +414,14 @@ class SceneObject:
     def resolve(self, t: float, ctx: RenderContext) -> Values:
         """All property values at time t, with colours as RGB arrays and vectors as arrays."""
         out = Values()
+        out["_local_t"] = float(t) - self.start
         for p in self.all_props():
             v = self.value_at(p.name, t, ctx.color)
+            if p.name in self.tracks:
+                try:
+                    v = self.track_value(p.name, t, ctx.assets)
+                except (ValueError, KeyError, OSError) as exc:
+                    ctx.warn(f"{self.name}: data track of {p.label}: {exc}", p.name)
             if p.kind == "color":
                 v = ctx.color(v)
             elif p.kind in ("vec2", "vec3"):
@@ -409,8 +477,8 @@ class SceneObject:
         return {name: self.value_at(name, t) for name in self.keys}
 
     def depends_on_time(self) -> bool:
-        """True when the drawing changes with time even without keyframes (particles, waves)."""
-        return self.TIME_DEPENDENT
+        """True when the drawing changes with time even without keyframes (particles, waves, data tracks)."""
+        return self.TIME_DEPENDENT or bool(self.tracks)
 
     def refs(self) -> list[str]:
         """Ids of other objects this one is drawn from (a series' chart)."""
@@ -466,6 +534,8 @@ class SceneObject:
             d["locked"] = True
         if self.parent:
             d["parent"] = self.parent
+        if self.tracks:
+            d["tracks"] = copy.deepcopy(self.tracks)
         return d
 
     @classmethod
@@ -476,7 +546,8 @@ class SceneObject:
             raise ValueError(f"unknown object type {typ!r}. Known types: {', '.join(sorted(REGISTRY))}")
         return klass(id=d.get("id"), name=d.get("name"), props=d.get("props"), keys=d.get("keys"),
                      start=d.get("start", 0.0), end=d.get("end"), enter=d.get("enter"), exit=d.get("exit"),
-                     visible=d.get("visible", True), locked=d.get("locked", False), parent=d.get("parent"))
+                     visible=d.get("visible", True), locked=d.get("locked", False), parent=d.get("parent"),
+                     tracks=d.get("tracks"))
 
     def copy(self, new_id: str | None = None) -> SceneObject:
         d = self.to_json()

@@ -119,7 +119,27 @@ Equations use full LaTeX math syntax through the **Equation** object, e.g. `\mu 
 Upload files with the arrow button next to any file field, or drop them on the preview: images become Image
 objects, 3D models become 3D models and audio becomes the film's soundtrack. Tables (CSV, TSV, whitespace
 text, `.npy`, `.npz`) are used by scatter plots, curves, histograms and point clouds; the column fields suggest
-the names found in the file.
+the names found in the file. Volumes (`.npy`, TIFF stacks, HDF5) go in a **Volume**, and PDB or XYZ files in a
+**Molecule**.
+
+### Series of files
+
+Upload several files at once in a file field and they become a sequence, shown one file per step: a time
+series of images, the outputs of a simulation. The field then holds a pattern such as
+`assets/run/step_*.csv` (choose **File pattern…** to type one). Files are taken in natural order, so
+`step_2` comes before `step_10`. Set **Steps per second** to play the files from the moment the object appears,
+or keyframe **Step** to choose which file shows when (both can be combined). Tables with the same number of rows are blended between
+files, so points move smoothly.
+
+## Data tracks
+
+A data track makes a property follow a column of a table over time instead of keyframes: a temperature log
+that drives a counter, a measured trajectory, the intensity of a source. Under **Data tracks** in the
+properties panel, choose the property and press **Add**, then pick the table, the **time column** (in seconds
+of the film; shift it with **Starts at** and stretch it with **Time scale**) and the **value column**. For an
+x, y or x, y, z property, give two or three columns separated by commas. **Scale** and **Offset** convert the
+values. Properties driven by data are marked "⟵ data" in blue, and a track takes the place of the
+property's keyframes. The camera's tracks can be set from Python (`film.camera.track(...)`).
 
 ## Problems
 
@@ -127,6 +147,15 @@ A warning sign on a timeline row means something stops that object from drawing 
 is missing, an expression that cannot be read, a chart that no longer exists. Select the object: the
 properties panel says what is wrong and marks the field to fix in gold. The count under the preview lists
 every problem in the film; click one to jump to its object.
+
+## Working with an AI assistant
+
+An AI assistant connected with `sciview mcp --editor http://localhost:8765` (see [AI assistants](agent.md))
+changes the film in the open editor. Each of its changes appears within about a second, with a short note of
+what it did. Press Ctrl+Z to take back a change you do not want: **Undo** treats it like your own edits
+(changes that arrive within the same second are undone together). If you edit something at the same moment,
+your edit is kept and the assistant's change is made again on top of it. Locked objects are never touched by
+the assistant.
 
 ## Autosave
 

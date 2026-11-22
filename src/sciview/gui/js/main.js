@@ -1,7 +1,7 @@
 // Entry point: wires the library, preview, timeline, inspector, transport and shortcuts together.
 import {
   S, on, emit, commit, objById, schemaOf, applyState, requestFrame, undo, redo, canUndo, canRedo,
-  duration, fps, frameDt, setKey, valueAt, keyIndexAt, select, isGroup,
+  duration, fps, frameDt, setKey, valueAt, keyIndexAt, select, isGroup, watchExternal,
 } from './state.js';
 import {
   groupSelection, ungroup, removeSelected, duplicateSelected, copySelection, cutSelection, pasteText, lastCopied,
@@ -181,6 +181,7 @@ function updateIssues() {
   $('btnIssues').textContent = n === 1 ? '1 thing to check' : `${n} things to check`;
 }
 let lastFrameIssues = '';
+on('agent', (note) => toast(`${note}. Ctrl+Z undoes it.`));
 on('frame', (r) => {
   $('renderMs').textContent = `${Math.round(r.ms)} ms${r.cached ? ' (cached)' : ''}`;
   const key = JSON.stringify(r.issues || []);
@@ -329,6 +330,7 @@ async function start() {
     return;
   }
   emit('loaded');
+  watchExternal();
   if (S.recovery) recoveryDialog();
   else if (S.untitled && S.project.objects.length === 0) newFilmDialog({ first: true });
 }

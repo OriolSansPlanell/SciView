@@ -7,6 +7,7 @@ import numpy as np
 
 from ..engine.color import COLORMAPS, apply_colormap
 from ..engine.mathexpr import ExpressionError, evaluate, uses_time
+from . import data as seqdata
 from .base import Prop, SceneObject, parse_array, register
 from .objects2d import draw_rotated_text, format_values
 
@@ -133,15 +134,19 @@ DATA_PROPS = [
     Prop("y_column", "text", "y", group=G_DATA),
     Prop("x_values", "array", "", group=G_DATA, help="Or type numbers: 0, 1, 2, 3"),
     Prop("y_values", "array", "", group=G_DATA),
+    *seqdata.seq_props(G_DATA),
 ]
 
 
 class Series(SceneObject):
     CATEGORY = "Charts"
 
+    def depends_on_time(self) -> bool:
+        return super().depends_on_time() or seqdata.plays_by_itself(self, "data")
+
     def xy_data(self, ctx, v):
         if v.get("data"):
-            return ctx.assets.column(v.data, v.x_column), ctx.assets.column(v.data, v.y_column)
+            return seqdata.column(ctx, v, v.x_column), seqdata.column(ctx, v, v.y_column)
         xs, ys = parse_array(v.x_values), parse_array(v.y_values)
         if len(xs) == 0 and len(ys):
             xs = np.arange(len(ys), dtype=np.float64)
@@ -181,7 +186,7 @@ class Curve(Series):
     PROPS = [
         AXES_REF,
         Prop("source", "enum", "expression", options=("expression", "data"), group=G_DATA),
-        Prop("expression", "text", "exp(-x/3)", group=G_DATA,
+        Prop("expression", "text", "exp(-x/3)", group=G_DATA, expr=True,
              help="y as a function of x (and time t): sin(x - 2*t), gauss(x, 5, 1), x^2 ..."),
         Prop("domain", "vec2", [0, 0], group=G_DATA, help="x range of the expression (equal values = whole axis)"),
         Prop("samples", "int", 400, min=2, max=20000, group=G_DATA),
@@ -195,7 +200,9 @@ class Curve(Series):
     ]
 
     def depends_on_time(self) -> bool:
-        return self.props.get("source") == "expression" and uses_time(self.props.get("expression", ""))
+        if self.props.get("source") == "expression" and uses_time(self.props.get("expression", "")):
+            return True
+        return super().depends_on_time()
 
     def draw(self, cv, ctx, v, st):
         tr = self.axes_or_warn(ctx, v)
@@ -268,7 +275,7 @@ class Scatter(Series):
         xs, ys = self.xy_data(ctx, v)
         if len(xs) == 0:
             return None
-        cvals = ctx.assets.column(v.data, v.color_by)[: len(xs)] if (v.data and v.color_by) else None
+        cvals = seqdata.column(ctx, v, v.color_by)[: len(xs)] if (v.data and v.color_by) else None
         if st.progress < 1:
             order = np.random.default_rng(11).permutation(len(xs))[: int(round(len(xs) * st.progress))]
             xs, ys = xs[order], ys[order]
@@ -379,7 +386,7 @@ class Histogram(Series):
         if tr is None:
             return None
         a = v.opacity * st.opacity
-        data = ctx.assets.column(v.data, v.column) if v.data else parse_array(v.values)
+        data = seqdata.column(ctx, v, v.column) if v.data else parse_array(v.values)
         data = data[np.isfinite(data)]
         if len(data) == 0:
             return None
@@ -426,7 +433,7 @@ class Marker(Series):
         AXES_REF,
         Prop("x", "number", 5.0, group=G_DATA),
         Prop("y", "number", 0.5, group=G_DATA),
-        Prop("follow", "text", "", group=G_DATA, help="Optional expression: y follows f(x), e.g. exp(-x/3)"),
+        Prop("follow", "text", "", group=G_DATA, expr=True, help="Optional expression: y follows f(x), e.g. exp(-x/3)"),
         Prop("size", "number", 7, min=1, max=60, step=0.5, group=G_LOOK),
         Prop("color", "color", "white", group=G_LOOK),
         Prop("guides", "enum", "both", options=("none", "x", "y", "both"), group=G_LOOK,
@@ -439,7 +446,7 @@ class Marker(Series):
     ]
 
     def depends_on_time(self) -> bool:
-        return uses_time(self.props.get("follow", ""))
+        return uses_time(self.props.get("follow", "")) or super().depends_on_time()
 
     def draw(self, cv, ctx, v, st):
         tr = self.axes_or_warn(ctx, v)

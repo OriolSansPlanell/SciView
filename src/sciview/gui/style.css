@@ -362,3 +362,19 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-si
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* 0.3: file patterns and data tracks */
+.ctl .asset-ctl { display: flex; gap: 6px; align-items: center; width: 100%; }
+.ctl .asset-ctl select { flex: 1; min-width: 0; }
+.ctl .pattern { margin-top: 4px; width: 100%; }
+.row.tracked > .lbl { color: var(--blue, #6cb4fc); }
+.row.tracked > .lbl::after { content: " ⟵ data"; font-size: 10.5px; opacity: .8; }
+.tracks { display: flex; flex-direction: column; gap: 10px; }
+.track { border: 1px solid var(--line); border-radius: var(--r-s); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.track-head { display: flex; align-items: center; gap: 6px; }
+.track-head .ic svg { width: 15px; height: 15px; display: block; color: var(--blue, #6cb4fc); }
+.track-head .spacer { flex: 1; }
+.track-file select { width: 100%; }
+.track .timing { padding: 0; }
+.track-add { display: flex; gap: 6px; }
+.track-add select { flex: 1; min-width: 0; }

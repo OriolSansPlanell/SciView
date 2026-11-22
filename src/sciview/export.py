@@ -196,6 +196,11 @@ def iter_frames(project: Project, times: list[float], scale: float, workers: int
             yield data
 
 
+def uses_script_figures(project: Project) -> bool:
+    from . import figures
+    return any(o.TYPE == "figure" and figures.get(o.props.get("callback", "")) for o in project.objects)
+
+
 def export(project: Project, output: str | os.PathLike, *, fps: float | None = None, scale: float = 1.0,
            crf: int = 18, preset: str = "medium", start: float | None = None, end: float | None = None,
            workers: int | None = None, audio: bool = True, subtitles: bool = False,
@@ -222,6 +227,8 @@ def export(project: Project, output: str | os.PathLike, *, fps: float | None = N
     total = len(times)
     W, H = out_size(project, scale)
     workers = default_workers() if workers is None else max(1, int(workers))
+    if uses_script_figures(project):
+        workers = 1          # figure functions live in this process; render processes cannot call them
     out.parent.mkdir(parents=True, exist_ok=True) if fmt != "png" else out.mkdir(parents=True, exist_ok=True)
 
     started = time.perf_counter()

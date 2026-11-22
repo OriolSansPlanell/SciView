@@ -13,8 +13,8 @@ authors:
     # affiliation: "Your institute"
 repository-code: "https://github.com/OriolSansPlanell/SciView"
 license: MIT
-version: "0.2.0"
-date-released: "2026-11-20"
+version: "0.3.0"
+date-released: "2026-11-22"
 keywords:
   - scientific visualization
   - science communication

@@ -125,6 +125,7 @@ function renderObject(obj) {
 
   const kf = keyframeList(obj);
   if (kf) root.append(group('Keyframes', kf));
+  if (!isCam) root.append(group('Data tracks', trackList(obj)));
 
   if (!isCam) {
     root.append(el('div', { class: 'insp-actions' },
@@ -312,6 +313,73 @@ function keyframeList(obj) {
   }
   return el('div', { class: 'group-body' }, list,
     el('div', { class: 'help' }, 'Gold labels mark animated values. Change one at another time to add a keyframe there. The easing sets how the value moves into each keyframe.'));
+}
+
+// ------------------------------------------------------------------ data tracks
+function trackList(obj) {
+  const id = obj.id;
+  const sc = schemaOf(obj);
+  const numeric = sc.props.filter((p) => ['number', 'int', 'vec2', 'vec3'].includes(p.kind));
+  const tables = S.assets.filter((a) => ['table', 'array', 'sequence'].includes(a.kind));
+  const body = el('div', { class: 'group-body tracks' });
+  const tracks = obj.tracks || {};
+  const edit = (name, patch) => commit(() => {
+    const o = objById(id);
+    o.tracks ||= {};
+    o.tracks[name] = { ...o.tracks[name], ...patch };
+  }, { source: 'tracks' });
+  for (const [name, tr] of Object.entries(tracks)) {
+    const p = sc.props.find((x) => x.name === name);
+    const need = p && p.kind === 'vec3' ? 3 : p && p.kind === 'vec2' ? 2 : 1;
+    const file = el('select', { 'aria-label': `Data file for ${name}` },
+      el('option', { value: '' }, 'Choose a table…'),
+      tables.map((a) => el('option', { value: a.path, selected: a.path === tr.data }, a.path.replace(/^assets\//, ''))));
+    if (tr.data && !tables.some((a) => a.path === tr.data)) file.append(el('option', { value: tr.data, selected: true }, tr.data));
+    file.addEventListener('change', () => edit(name, { data: file.value }));
+    const txt = (key, label, ph) => {
+      const inp = el('input', { type: 'text', value: tr[key] ?? '', placeholder: ph, 'aria-label': `${label} (${name})`, spellcheck: 'false' });
+      inp.addEventListener('change', () => edit(name, { [key]: inp.value.trim() }));
+      if (tr.data) api.columns(tr.data).then((r) => {
+        const dl = el('datalist', { id: `cols-${id}-${name}-${key}` }, r.columns.map((c) => el('option', { value: c })));
+        inp.setAttribute('list', dl.id);
+        inp.after(dl);
+      }).catch(() => {});
+      return el('label', { class: 'cell' }, el('span', {}, label), inp);
+    };
+    const num = (key, label) => {
+      const inp = el('input', { type: 'number', step: 'any', value: tr[key] ?? (key.endsWith('scale') ? 1 : 0), 'aria-label': `${label} (${name})` });
+      inp.addEventListener('change', () => { const v = Number(inp.value); if (Number.isFinite(v)) edit(name, { [key]: v }); });
+      return el('label', { class: 'cell' }, el('span', {}, label), inp);
+    };
+    const remove = el('button', { class: 'icon-btn small', title: 'Remove this data track', 'aria-label': `Remove the data track of ${name}`, html: icon('close') });
+    remove.addEventListener('click', () => commit(() => {
+      const o = objById(id);
+      delete o.tracks[name];
+      if (!Object.keys(o.tracks).length) delete o.tracks;
+    }, { source: 'tracks' }));
+    body.append(el('div', { class: 'track' },
+      el('div', { class: 'track-head' }, el('span', { class: 'ic', html: icon('streamlines') }),
+        el('strong', {}, p ? p.label : name), el('span', { class: 'spacer' }), remove),
+      el('div', { class: 'track-file' }, file),
+      el('div', { class: 'timing' },
+        txt('time', 'Time column', 't'), txt('column', need > 1 ? `Columns (${need})` : 'Value column', need > 1 ? 'x, y' : 'value'),
+        num('scale', 'Scale'), num('offset', 'Offset'), num('time_offset', 'Starts at (s)'), num('time_scale', 'Time scale'))));
+  }
+  const free = numeric.filter((p) => !(p.name in tracks));
+  if (free.length) {
+    const pick = el('select', { 'aria-label': 'Property to drive from data' }, free.map((p) => el('option', { value: p.name }, p.label)));
+    const add = el('button', { class: 'btn small' }, 'Add');
+    add.addEventListener('click', () => commit(() => {
+      const o = objById(id);
+      o.tracks ||= {};
+      o.tracks[pick.value] = { data: tables.length ? tables[0].path : '', column: '', time: 't', scale: 1, offset: 0,
+        time_scale: 1, time_offset: 0, smooth: true };
+    }, { source: 'tracks' }));
+    body.append(el('div', { class: 'track-add' }, pick, add));
+  }
+  body.append(el('div', { class: 'help' }, 'Drive a value from a table column over time: a temperature log, a simulation, a scan. '
+    + 'The time column is in seconds of the film (shift it with Starts at).'));
+  return body;
 }
 
 // ------------------------------------------------------------------ easing curve editor
@@ -509,6 +577,9 @@ function makeRow(p, b) {
       if (!o) return;
       const anim = isAnimated(o, p.name);
       row.classList.toggle('animated', anim);
+      const tracked = !!(o.tracks && o.tracks[p.name]);
+      row.classList.toggle('tracked', tracked);
+      lbl.title = tracked ? `${p.label}: follows a data track (see Data tracks)` : (p.help ? `${p.label}: ${p.help}` : p.label);
       if (kfBtn) {
         const on = keyIndexAt(o, p.name, S.time) >= 0;
         kfBtn.className = `kf ${on ? 'on' : anim ? 'has' : ''}`;
@@ -638,31 +709,47 @@ function control(p, b, lbl) {
     };
   } else if (k === 'asset') {
     const s = el('select', { 'aria-label': p.label });
-    const up = el('button', { class: 'icon-btn small', title: 'Upload a file', html: icon('upload') });
+    const up = el('button', { class: 'icon-btn small', title: 'Upload files (several make a sequence, one file per step)', html: icon('upload') });
+    const pattern = el('input', { type: 'text', class: 'pattern', placeholder: 'assets/scan/*.tif', spellcheck: 'false', hidden: true,
+      'aria-label': `${p.label} file pattern`, title: 'A file pattern shows one file per step: assets/run/step_*.csv' });
+    const isPattern = (v) => /[*?[]/.test(v || '');
     const fill = () => {
       const cur = b.get() || '';
-      const kinds = p.accept === 'image' ? ['image', 'array'] : p.accept === 'table' ? ['table', 'array'] : [p.accept];
+      const kinds = ASSET_KINDS[p.accept] || [p.accept];
       const opts = S.assets.filter((a) => !p.accept || kinds.includes(a.kind));
       s.innerHTML = '';
       s.append(el('option', { value: '' }, 'None'));
       for (const a of opts) s.append(el('option', { value: a.path }, a.path.replace(/^assets\//, '') + (a.missing ? ' (missing)' : '')));
-      if (cur && !opts.some((a) => a.path === cur)) s.append(el('option', { value: cur }, cur));
-      s.value = cur;
+      if (cur && !isPattern(cur) && !opts.some((a) => a.path === cur)) s.append(el('option', { value: cur }, cur));
+      if (p.accept !== 'molecule' && p.accept !== 'mesh' && p.accept !== 'audio') s.append(el('option', { value: '__pattern__' }, 'File pattern…'));
+      s.value = isPattern(cur) ? '__pattern__' : cur;
+      pattern.hidden = !isPattern(cur) && s.value !== '__pattern__';
+      if (!focused(pattern) && isPattern(cur)) pattern.value = cur;
     };
-    s.addEventListener('change', () => b.set(s.value));
+    s.addEventListener('change', () => {
+      if (s.value === '__pattern__') { pattern.hidden = false; pattern.focus(); return; }
+      b.set(s.value);
+    });
+    pattern.addEventListener('change', () => { if (pattern.value.trim()) b.set(pattern.value.trim()); });
     up.addEventListener('click', async () => {
-      const files = await pickFiles(p.accept);
+      const files = await pickFiles(p.accept, true);
+      const added = [];
       for (const f of files) {
         try {
           const info = await api.upload(f);
           S.assets.push(info);
-          b.set(info.path);
-          toast(`Added ${f.name}`);
+          added.push(info.path);
         } catch (e) { toast(`Upload failed: ${e.message}`, 'err'); }
+      }
+      if (added.length === 1) { b.set(added[0]); toast(`Added ${files[0].name}`); }
+      else if (added.length > 1) {
+        const pat = commonPattern(added);
+        b.set(pat);
+        toast(`Added ${added.length} files as a sequence: ${pat}`);
       }
       fill();
     });
-    wrap.append(s, up);
+    wrap.append(el('div', { class: 'asset-ctl' }, s, up), pattern);
     sync = fill;
   } else if (k === 'ref') {
     const s = el('select', { 'aria-label': p.label });
@@ -670,7 +757,11 @@ function control(p, b, lbl) {
       const cur = b.get() || '';
       s.innerHTML = '';
       s.append(el('option', { value: '' }, 'None'));
-      for (const o of S.project.objects.filter((x) => !p.ref || x.type === p.ref)) s.append(el('option', { value: o.id }, o.name || o.id));
+      const self = b.obj ? b.obj() : null;
+      for (const o of S.project.objects.filter((x) => (p.ref ? x.type === p.ref : x.type !== 'group') && (!self || x.id !== self.id))) {
+        s.append(el('option', { value: o.id }, p.ref ? (o.name || o.id) : `${o.name || o.id} (${(S.types[o.type] || {}).label || o.type})`));
+      }
+      if (cur && !S.project.objects.some((x) => x.id === cur)) s.append(el('option', { value: cur }, `${cur} (missing)`));
       s.value = cur;
     };
     s.addEventListener('change', () => b.set(s.value));
@@ -725,11 +816,29 @@ function attachColumns(inp, b) {
   else api.columns(data).then((r) => { columnCache.set(data, r.columns); fill(r.columns); }).catch(() => {});
 }
 
-export function pickFiles(accept) {
-  const map = { image: '.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.npy', table: '.csv,.tsv,.txt,.dat,.npy,.npz', mesh: '.stl,.obj', audio: '.wav,.mp3,.m4a,.aac,.ogg,.flac' };
+const ASSET_KINDS = {
+  image: ['image', 'array', 'sequence'], table: ['table', 'array', 'sequence'],
+  volume: ['volume', 'image', 'array', 'sequence'], molecule: ['molecule'], mesh: ['mesh'], audio: ['audio'],
+};
+
+/** "assets/step_001.csv", "assets/step_002.csv" -> "assets/step_*.csv" */
+export function commonPattern(paths) {
+  let pre = paths[0];
+  for (const x of paths) while (!x.startsWith(pre)) pre = pre.slice(0, -1);
+  const exts = new Set(paths.map((x) => (x.match(/\.[^./]+$/) || [''])[0]));
+  pre = pre.replace(/\d+$/, '');
+  return `${pre}*${exts.size === 1 ? [...exts][0] : ''}`;
+}
+
+export function pickFiles(accept, multiple = false) {
+  const map = {
+    image: '.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.npy', table: '.csv,.tsv,.txt,.dat,.npy,.npz', mesh: '.stl,.obj',
+    audio: '.wav,.mp3,.m4a,.aac,.ogg,.flac', volume: '.npy,.tif,.tiff,.h5,.hdf5,.nxs,.png', molecule: '.pdb,.xyz,.ent',
+  };
   return new Promise((resolve) => {
     const fi = document.getElementById('fileInput');
     fi.value = '';
+    fi.multiple = multiple;
     fi.accept = map[accept] || '';
     fi.onchange = () => resolve([...fi.files]);
     fi.click();

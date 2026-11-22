@@ -1,8 +1,10 @@
-"""Loading user files: images, data tables and meshes. Results are cached by path and mtime."""
+"""Loading user files: images, data tables, meshes, volumes and molecules. Results are cached by path and mtime."""
 from __future__ import annotations
 
 import csv
+import glob
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +16,19 @@ ARRAY_EXT = {".npy"}
 TABLE_EXT = {".csv", ".tsv", ".txt", ".dat", ".npz", ".npy"}
 MESH_EXT = {".stl", ".obj"}
 AUDIO_EXT = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac"}
+VOLUME_EXT = {".h5", ".hdf5", ".nxs"}
+MOLECULE_EXT = {".pdb", ".xyz", ".ent"}
+SEQUENCE_CHARS = set("*?[")
+
+
+def is_sequence(path: str) -> bool:
+    """True for a file pattern such as ``assets/scan/*.tif`` (one file per step)."""
+    return any(c in SEQUENCE_CHARS for c in str(path))
 
 
 def asset_kind(path: str) -> str:
+    if is_sequence(path):
+        return "sequence"
     ext = Path(path).suffix.lower()
     if ext in IMAGE_EXT:
         return "image"
@@ -24,11 +36,20 @@ def asset_kind(path: str) -> str:
         return "mesh"
     if ext in AUDIO_EXT:
         return "audio"
+    if ext in VOLUME_EXT:
+        return "volume"
+    if ext in MOLECULE_EXT:
+        return "molecule"
     if ext == ".npy":
         return "array"
     if ext in TABLE_EXT:
         return "table"
     return "other"
+
+
+def natural_key(s: str):
+    """Sort ``step_2`` before ``step_10``."""
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
 
 
 class AssetError(ValueError):
@@ -108,11 +129,66 @@ class AssetStore:
         return self._cached(key, lambda: load_mesh(self.resolve(rel)))
 
     def stamp(self, rel: str) -> int:
-        """Modification time of a file (0 if missing): part of cache keys derived from it."""
+        """Modification time of a file (0 if missing): part of cache keys derived from it.
+        For a sequence pattern: a value that changes when any matching file changes."""
+        if is_sequence(rel):
+            return hash(tuple((f, self.stamp(f)) for f in self.sequence(rel)))
         try:
             return self.resolve(rel).stat().st_mtime_ns
         except OSError:
             return 0
+
+    # ------------------------------------------------------------------ sequences
+    def sequence(self, pattern: str) -> list[str]:
+        """Files matching a pattern, relative to the project folder, in natural order (step_2 before step_10)."""
+        base = str(self.base_dir)
+        full = pattern if os.path.isabs(pattern) else os.path.join(base, pattern)
+        files = [f for f in glob.glob(full) if os.path.isfile(f)]
+        out = []
+        for f in files:
+            try:
+                out.append(os.path.relpath(f, base).replace(os.sep, "/"))
+            except ValueError:          # another drive on Windows
+                out.append(f)
+        return sorted(out, key=natural_key)
+
+    def sequence_file(self, pattern: str, index: float) -> tuple[str, str, float]:
+        """The files either side of a fractional step index, and how far between them (0..1)."""
+        files = self.sequence(pattern)
+        if not files:
+            raise AssetError(f"no files match {pattern}")
+        i = min(max(float(index), 0.0), len(files) - 1.0)
+        lo = int(i)
+        hi = min(lo + 1, len(files) - 1)
+        return files[lo], files[hi], i - lo
+
+    # ------------------------------------------------------------------ volumes
+    def volume(self, rel: str, dataset: str = "") -> np.ndarray:
+        """A 3D float32 array (z, y, x): .npy, a multi-page TIFF, an HDF5 dataset, or a sequence of 2D images."""
+        if is_sequence(rel):
+            files = self.sequence(rel)
+            if not files:
+                raise AssetError(f"no files match {rel}")
+            key = ("volume_seq", rel, self.stamp(rel))
+            return self._cached(key, lambda: _stack([self.image(f) for f in files], rel))
+        key = self._key("volume", rel, dataset)
+        return self._cached(key, lambda: load_volume(self.resolve(rel), dataset))
+
+    def volume_reduced(self, rel: str, dataset: str, max_side: int) -> np.ndarray:
+        vol = self.volume(rel, dataset)
+        if max(vol.shape) <= max_side:
+            return vol
+        key = ("volume_rs", rel, dataset, self.stamp(rel), int(max_side))
+
+        def make():
+            f = int(np.ceil(max(vol.shape) / max_side))
+            return block_reduce(vol, f)
+        return self._cached(key, make)
+
+    # ------------------------------------------------------------------ molecules
+    def molecule(self, rel: str) -> Molecule:
+        key = self._key("molecule", rel)
+        return self._cached(key, lambda: load_molecule(self.resolve(rel)))
 
     def memo(self, key: tuple, factory):
         """Cache any derived object (particle tables, colormapped images ...)."""
@@ -120,6 +196,70 @@ class AssetStore:
 
 
 # --------------------------------------------------------------------------- loaders
+def _stack(images: list, name: str) -> np.ndarray:
+    imgs = [im if im.ndim == 2 else im[..., :3].mean(axis=2) for im in images]
+    shapes = {im.shape for im in imgs}
+    if len(shapes) != 1:
+        raise AssetError(f"the images of {name} have different sizes: {sorted(shapes)}")
+    return np.stack(imgs, 0).astype(np.float32)
+
+
+def block_reduce(vol: np.ndarray, f: int) -> np.ndarray:
+    """Average f×f×f blocks (edges padded by repetition)."""
+    if f <= 1:
+        return vol
+    pad = [(0, (-n) % f) for n in vol.shape]
+    v = np.pad(vol, pad, mode="edge")
+    z, y, x = (n // f for n in v.shape)
+    return v.reshape(z, f, y, f, x, f).mean(axis=(1, 3, 5)).astype(np.float32)
+
+
+def load_volume(path: Path, dataset: str = "") -> np.ndarray:
+    ext = path.suffix.lower()
+    if ext == ".npy":
+        arr = np.load(path, allow_pickle=False, mmap_mode="r")
+        if arr.ndim == 4 and arr.shape[-1] in (1, 3, 4):
+            arr = np.asarray(arr[..., :3]).mean(axis=-1)
+        if arr.ndim != 3:
+            raise AssetError(f"{path.name} holds a {arr.ndim}D array; a volume needs 3 dimensions (z, y, x)")
+        return np.array(arr, np.float32)            # a writable copy, not the memory map
+    if ext in (".tif", ".tiff"):
+        try:
+            import tifffile
+            arr = tifffile.imread(str(path))
+        except ImportError:
+            from PIL import ImageSequence
+            with Image.open(path) as im:
+                arr = np.stack([np.asarray(fr.convert("F") if fr.mode not in ("I;16", "F") else fr, np.float32)
+                                for fr in ImageSequence.Iterator(im)])
+        arr = np.asarray(arr)
+        if arr.ndim == 4 and arr.shape[-1] in (3, 4):
+            arr = arr[..., :3].mean(axis=-1)
+        if arr.ndim != 3:
+            raise AssetError(f"{path.name} is a single image; a volume needs a multi-page TIFF stack")
+        return arr.astype(np.float32)
+    if ext in VOLUME_EXT:
+        try:
+            import h5py
+        except ImportError:
+            raise AssetError("reading HDF5 files needs h5py: pip install h5py") from None
+        with h5py.File(path, "r") as f:
+            name = dataset.strip()
+            if not name:
+                found = []
+                f.visititems(lambda n, o: found.append(n) if isinstance(o, h5py.Dataset) and o.ndim == 3 else None)
+                if not found:
+                    raise AssetError(f"{path.name} has no 3D dataset")
+                name = found[0]
+            if name not in f:
+                raise AssetError(f"{path.name} has no dataset {name!r}")
+            arr = np.asarray(f[name], np.float32)
+        if arr.ndim != 3:
+            raise AssetError(f"dataset {name!r} in {path.name} is {arr.ndim}D, not 3D")
+        return arr
+    raise AssetError(f"{path.name}: volumes are read from .npy, multi-page .tif, .h5 or a file pattern like slices/*.png")
+
+
 def load_image(path: Path) -> np.ndarray:
     ext = path.suffix.lower()
     if ext == ".npy":
@@ -224,3 +364,140 @@ def load_mesh(path: Path) -> tuple[np.ndarray, np.ndarray]:
     # merge duplicate vertices
     uniq, inv = np.unique(np.round(v, 6), axis=0, return_inverse=True)
     return uniq, inv.reshape(-1, 3)
+
+
+# --------------------------------------------------------------------------- molecules
+COVALENT_RADIUS = {  # Å, Cordero et al. 2008 (common elements)
+    "H": 0.31, "He": 0.28, "Li": 1.28, "Be": 0.96, "B": 0.84, "C": 0.76, "N": 0.71, "O": 0.66, "F": 0.57,
+    "Ne": 0.58, "Na": 1.66, "Mg": 1.41, "Al": 1.21, "Si": 1.11, "P": 1.07, "S": 1.05, "Cl": 1.02, "Ar": 1.06,
+    "K": 2.03, "Ca": 1.76, "Ti": 1.60, "V": 1.53, "Cr": 1.39, "Mn": 1.39, "Fe": 1.32, "Co": 1.26, "Ni": 1.24,
+    "Cu": 1.32, "Zn": 1.22, "Ga": 1.22, "Ge": 1.20, "As": 1.19, "Se": 1.20, "Br": 1.20, "Kr": 1.16, "Rb": 2.20,
+    "Sr": 1.95, "Zr": 1.75, "Mo": 1.54, "Ag": 1.45, "Cd": 1.44, "In": 1.42, "Sn": 1.39, "Sb": 1.39, "Te": 1.38,
+    "I": 1.39, "Xe": 1.40, "Cs": 2.44, "Ba": 2.15, "La": 2.07, "Gd": 1.96, "Pt": 1.36, "Au": 1.36, "Hg": 1.32,
+    "Pb": 1.46, "Bi": 1.48, "U": 1.96,
+}
+
+
+class Molecule:
+    """Atoms (element, position in Å, residue info) and bonds (index pairs)."""
+
+    def __init__(self, elements: list[str], xyz: np.ndarray, names: list[str] | None = None,
+                 residues: list[int] | None = None, chains: list[str] | None = None,
+                 bonds: np.ndarray | None = None, hetero: list[bool] | None = None,
+                 resnames: list[str] | None = None):
+        self.elements = elements
+        self.xyz = np.asarray(xyz, np.float64).reshape(-1, 3)
+        self.names = names or list(elements)
+        self.residues = residues or [0] * len(elements)
+        self.chains = chains or ["A"] * len(elements)
+        self.hetero = hetero or [False] * len(elements)
+        self.resnames = resnames or [""] * len(elements)
+        self.bonds = guess_bonds(self.elements, self.xyz) if bonds is None or len(bonds) == 0 else bonds
+
+    def __len__(self) -> int:
+        return len(self.elements)
+
+    def backbone(self) -> list[tuple[str, np.ndarray]]:
+        """Indices of the alpha carbons (proteins) or phosphorus atoms (nucleic acids), per chain."""
+        out: dict[str, list] = {}
+        for i, (n, ch) in enumerate(zip(self.names, self.chains)):
+            if not self.hetero[i] and n.strip().upper() in ("CA", "P") and self.elements[i] in ("C", "P"):
+                out.setdefault(ch, []).append(i)
+        return [(ch, np.asarray(v, np.int64)) for ch, v in out.items() if len(v) >= 2]
+
+
+def _element(sym: str) -> str:
+    sym = re.sub(r"[^A-Za-z]", "", sym)
+    if not sym:
+        return "C"
+    sym = sym[0].upper() + sym[1:].lower()
+    if sym in COVALENT_RADIUS:
+        return sym
+    return sym[0] if sym[0] in COVALENT_RADIUS else "C"
+
+
+def guess_bonds(elements: list[str], xyz: np.ndarray, tolerance: float = 0.45) -> np.ndarray:
+    """Bonds between atoms closer than the sum of their covalent radii plus a tolerance (Å)."""
+    n = len(elements)
+    if n < 2:
+        return np.zeros((0, 2), np.int64)
+    r = np.array([COVALENT_RADIUS.get(e, 0.77) for e in elements])
+    cell = 2 * r.max() + tolerance
+    keys = np.floor(xyz / cell).astype(np.int64)
+    grid: dict[tuple, list[int]] = {}
+    for i, k in enumerate(map(tuple, keys)):
+        grid.setdefault(k, []).append(i)
+    pairs = []
+    offs = [(a, b, c) for a in (-1, 0, 1) for b in (-1, 0, 1) for c in (-1, 0, 1)]
+    for k, members in grid.items():
+        cand = [j for o in offs for j in grid.get((k[0] + o[0], k[1] + o[1], k[2] + o[2]), [])]
+        cand = np.asarray(cand)
+        for i in members:
+            js = cand[cand > i]
+            if len(js) == 0:
+                continue
+            d = np.linalg.norm(xyz[js] - xyz[i], axis=1)
+            ok = (d > 0.4) & (d < r[js] + r[i] + tolerance)
+            pairs.extend((i, int(j)) for j in js[ok])
+    return np.asarray(pairs, np.int64).reshape(-1, 2)
+
+
+def load_molecule(path: Path) -> Molecule:
+    ext = path.suffix.lower()
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    if ext == ".xyz":
+        lines = text.splitlines()
+        try:
+            n = int(lines[0].split()[0])
+        except (IndexError, ValueError):
+            raise AssetError(f"{path.name}: the first line of an XYZ file is the number of atoms") from None
+        els, pos = [], []
+        for line in lines[2:2 + n]:
+            tok = line.split()
+            if len(tok) >= 4:
+                els.append(_element(tok[0]))
+                pos.append([float(t) for t in tok[1:4]])
+        if not els:
+            raise AssetError(f"{path.name} has no atoms")
+        return Molecule(els, np.asarray(pos))
+    els, pos, names, res, chains, serial, het, resn = [], [], [], [], [], {}, [], []
+    conect = []
+    for line in text.splitlines():
+        rec = line[:6].strip()
+        if rec in ("ATOM", "HETATM"):
+            try:
+                x, y, z = float(line[30:38]), float(line[38:46]), float(line[46:54])
+            except ValueError:
+                continue
+            name = line[12:16].strip()
+            el = line[76:78].strip() if len(line) >= 78 and line[76:78].strip() else name
+            if line[16:17] not in (" ", "A", ""):        # keep the first alternate location only
+                continue
+            try:
+                serial[int(line[6:11])] = len(els)
+            except ValueError:
+                pass
+            els.append(_element(el))
+            pos.append([x, y, z])
+            names.append(name)
+            chains.append(line[21:22].strip() or "A")
+            het.append(rec == "HETATM")
+            resn.append(line[17:20].strip())
+            try:
+                res.append(int(line[22:26]))
+            except ValueError:
+                res.append(0)
+        elif rec == "CONECT":
+            nums = [int(line[i:i + 5]) for i in range(6, len(line.rstrip()), 5) if line[i:i + 5].strip().isdigit()]
+            conect += [(nums[0], m) for m in nums[1:]]
+        elif rec == "ENDMDL":
+            break
+    if not els:
+        raise AssetError(f"{path.name} has no ATOM or HETATM records")
+    xyz = np.asarray(pos)
+    bonds = guess_bonds(els, xyz)
+    extra = [(serial[a], serial[b]) for a, b in conect if a in serial and b in serial]
+    if extra:
+        allb = {tuple(sorted(p)) for p in map(tuple, bonds)} | {tuple(sorted(p)) for p in extra}
+        bonds = np.asarray(sorted(allb), np.int64).reshape(-1, 2)
+    return Molecule(els, xyz, names, res, chains, bonds, het, resn)

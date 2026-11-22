@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from ..engine.assets import AssetStore, is_sequence
 from ..engine.camera import Camera
 from ..engine.color import DEFAULT_PALETTE, LIGHT_PALETTE
 from ..engine.text import FAMILIES, plain_text
@@ -79,6 +80,7 @@ class Project:
         self.path: Path | None = Path(path) if path else None
         self.warnings: list[str] = []
         self._renderer = None
+        self._check_assets = None
         for k, v in settings.items():
             self.set(k, v)
 
@@ -251,12 +253,21 @@ class Project:
         return [o for o in self.objects if o.TYPE in types]
 
     # ------------------------------------------------------------------ camera
-    def camera_at(self, t: float, width: int, height: int, scale: float = 1.0) -> Camera:
+    def camera_at(self, t: float, width: int, height: int, scale: float = 1.0, assets=None) -> Camera:
         c = self.camera
-        off = np.asarray(c.value_at("offset", t), np.float64) * scale
-        return Camera.orbit(np.asarray(c.value_at("target", t), np.float64), float(c.value_at("distance", t)),
-                            float(c.value_at("azimuth", t)), float(c.value_at("elevation", t)),
-                            float(c.value_at("fov", t)), width, height, (float(off[0]), float(off[1])))
+
+        def val(name):
+            if assets is not None and name in c.tracks:
+                try:
+                    return c.track_value(name, t, assets)
+                except (ValueError, KeyError, OSError):
+                    pass                          # reported by problems(); fall back to the keyframes
+            return c.value_at(name, t)
+
+        off = np.asarray(val("offset"), np.float64) * scale
+        return Camera.orbit(np.asarray(val("target"), np.float64), float(val("distance")),
+                            float(val("azimuth")), float(val("elevation")),
+                            float(val("fov")), width, height, (float(off[0]), float(off[1])))
 
     # ------------------------------------------------------------------ rendering
     def renderer(self):
@@ -315,6 +326,10 @@ class Project:
 
         for w in self.warnings:
             add(w)
+        if self._check_assets is None:
+            self._check_assets = AssetStore(self.base_dir)
+        track_assets = self._check_assets              # reused between checks; keyed by file stamps
+        track_assets.base_dir = self.base_dir
         ids = {o.id for o in self.objects}
         for o in self.objects:
             for w in o.warnings:
@@ -330,20 +345,47 @@ class Project:
             for p in o.all_props():
                 val = o.props.get(p.name)
                 if p.kind == "asset" and val:
-                    f = Path(val) if Path(val).is_absolute() else self.base_dir / val
-                    if not f.exists():
-                        add(f"{o.name}: file not found: {val}", o, p.name)
+                    if is_sequence(val):
+                        if not track_assets.sequence(val):
+                            add(f"{o.name}: no files match {val}", o, p.name)
+                    else:
+                        f = Path(val) if Path(val).is_absolute() else self.base_dir / val
+                        if not f.exists():
+                            add(f"{o.name}: file not found: {val}", o, p.name)
                 if p.kind == "ref" and val and val not in ids:
                     add(f"{o.name}: {p.label} points to a missing object {val!r}", o, p.name)
-                if p.kind == "ref" and not val and p.name == "axes" and o.CATEGORY == "Charts":
+                elif p.kind == "ref" and val and p.ref and self.find(val).TYPE != p.ref:
+                    want = REGISTRY[p.ref].LABEL if p.ref in REGISTRY else p.ref
+                    add(f"{o.name}: {p.label} must be a {want}, not {self.find(val).name}", o, p.name)
+                elif p.kind == "ref" and not val and p.name == "axes" and o.CATEGORY == "Charts":
                     add(f"{o.name}: choose a chart in 'Axes'", o, p.name)
-            for name in ("expression", "follow"):
-                expr = o.props.get(name)
-                if expr and (name != "expression" or o.props.get("source") == "expression"):
-                    try:
-                        compile_expression(expr)
-                    except ExpressionError as exc:
-                        add(f"{o.name}: {exc}", o, name)
+                elif p.kind == "ref" and not val and p.name in o.REQUIRED_REFS:
+                    add(f"{o.name}: choose an object in '{p.label}'", o, p.name)
+            for p in o.all_props():
+                expr = o.props.get(p.name)
+                if not (p.expr and isinstance(expr, str) and expr.strip()):
+                    continue
+                if p.name == "expression" and o.props.get("source", "expression") != "expression":
+                    continue
+                names = tuple(sorted(set(p.expr.split(",")) | {"x", "t"})) if isinstance(p.expr, str) else ("t", "x")
+                try:
+                    compile_expression(expr, names)
+                except ExpressionError as exc:
+                    add(f"{o.name}: {exc}", o, p.name)
+        for o in [self.camera, *self.objects]:
+            for name, tr in o.tracks.items():
+                label = o.prop_map()[name].label if name in o.prop_map() else name
+                if not tr.get("data"):
+                    add(f"{o.name}: choose a table for the data track of {label}", o, name)
+                    continue
+                f = Path(tr["data"]) if Path(tr["data"]).is_absolute() else self.base_dir / tr["data"]
+                if not f.exists():
+                    add(f"{o.name}: the data track of {label} needs a missing file: {tr['data']}", o, name)
+                    continue
+                try:
+                    o.track_value(name, 0.0, track_assets)
+                except (ValueError, KeyError, OSError) as exc:
+                    add(f"{o.name}: data track of {label}: {exc}", o, name)
         a = self.settings.get("audio")
         if a and not (self.base_dir / a).exists() and not Path(a).exists():
             add(f"audio file not found: {a}", None, "audio")
@@ -358,7 +400,8 @@ class Project:
             "sciview": FORMAT_VERSION,
             "settings": dict(self.settings),
             "palette": dict(self.palette),
-            "camera": {"props": dict(self.camera.props), "keys": copy.deepcopy(self.camera.keys)},
+            "camera": {"props": dict(self.camera.props), "keys": copy.deepcopy(self.camera.keys),
+                       **({"tracks": copy.deepcopy(self.camera.tracks)} if self.camera.tracks else {})},
             "objects": [o.to_json() for o in self.objects],
         }
 
@@ -378,7 +421,8 @@ class Project:
         if data.get("palette"):
             proj.palette = {str(k).lower(): str(v) for k, v in data["palette"].items()}
         cam = data.get("camera") or {}
-        proj.camera = CameraRig(id="camera", name="Camera", props=cam.get("props"), keys=cam.get("keys"))
+        proj.camera = CameraRig(id="camera", name="Camera", props=cam.get("props"), keys=cam.get("keys"),
+                                tracks=cam.get("tracks"))
         seen: set[str] = set()
         for od in data.get("objects") or []:
             try:
@@ -392,12 +436,57 @@ class Project:
             proj.objects.append(obj)
         return proj
 
+    def add_figure(self, func, name: str | None = None, **props) -> SceneObject:
+        """Add a matplotlib figure drawn by ``func(fig, t)`` at every frame.
+
+        The function stays in your script: the project file stores only its name, and saving the
+        project also saves a snapshot picture for the editor and for people without the script.
+        """
+        from .. import figures
+        obj = self.add("figure", name=name or getattr(func, "__name__", "Figure"), **props)
+        key = f"{getattr(func, '__module__', 'script')}.{getattr(func, '__qualname__', 'figure')}:{obj.id}"
+        figures.register(key, func)
+        obj.set("callback", key)
+        return obj
+
+    def save_snapshots(self) -> list[Path]:
+        """Save a picture of every figure whose function is available (done by :meth:`save`)."""
+        from PIL import Image
+
+        from .. import figures
+        out = []
+        for o in self.objects:
+            func = figures.get(o.props.get("callback", "")) if o.TYPE == "figure" else None
+            if func is None:
+                continue
+            start, end = o.span(self.duration)
+            t = (start + end) / 2
+            W, H = (int(round(float(x))) for x in o.props["size"])
+            try:
+                buf = figures.render(func, t, W, H, float(o.props["dpi"]), o.props.get("style", "sciview"))
+            except Exception as exc:  # the user's function; the other figures still get their snapshot
+                import sys
+                sys.stderr.write(f"sciview: could not save a snapshot of {o.name}: {exc}\n")
+                continue
+            rel = f"assets/figures/{o.id}.png"
+            f = self.base_dir / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            Image.fromarray((np.clip(buf, 0, 1) * 255).astype(np.uint8), "RGBA").save(f)
+            o.props["snapshot"] = rel
+            out.append(f)
+        return out
+
     def save(self, path: str | os.PathLike | None = None) -> Path:
         if path is not None:
             self.path = Path(path)
         if self.path is None:
             raise ValueError("no path given")
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.save_snapshots()
+        except Exception as exc:  # a failing figure function must not stop the save
+            import sys
+            sys.stderr.write(f"sciview: could not save a figure snapshot: {exc}\n")
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
         tmp.write_text(json.dumps(self.to_json(), indent=2, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, self.path)
@@ -420,7 +509,7 @@ class Project:
 
 def all_schemas() -> dict:
     """Everything the editor needs to build its library, inspector and settings dialog."""
-    order = ["3D scene", "Text", "Charts", "Shapes & media"]
+    order = ["3D scene", "Text", "Charts", "Imaging", "Optics", "Shapes & media"]
     types = sorted(REGISTRY.values(), key=lambda c: (order.index(c.CATEGORY) if c.CATEGORY in order else 9))
     return {
         "types": [c.schema() for c in types],

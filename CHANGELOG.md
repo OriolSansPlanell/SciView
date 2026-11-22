@@ -3,6 +3,56 @@
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [semantic versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-22
+
+Science content: volumes, tomography, molecules, optics, uncertainty and fits, data that drives the film,
+and AI assistants that can build it with you.
+
+### Added
+- **Volumes** (`volume`) from `.npy`, TIFF stacks and HDF5 files: slice planes that sweep through the sample,
+  maximum-intensity and summed projections, and isosurfaces (scikit-image) with an animatable threshold.
+  Large volumes are reduced for drawing; slices are depth-sorted against each other.
+- **Tomography**: `sinogram` recorded angle by angle from a phantom or your image, and `backprojection` that
+  rebuilds the slice as the sinogram fills (ramp, Shepp-Logan, cosine, Hann or no filter). Images can rotate.
+- **Points into a chart** (`morph`): an image's pixels, or a scatter plot's points, fly into a joint scatter
+  plot or fall into histogram bins.
+- **Data tracks**: any number or vector property, the camera's included, can follow a table column over time
+  (`obj.track(...)`, "Data tracks" in the editor), with time offset and scale.
+- **File sequences**: a file field can hold a pattern (`assets/run/step_*.csv`) and shows one file per step,
+  in natural order; tables with equal rows are blended between files. Uploading several files at once in the
+  editor makes a sequence.
+- **Charts**: `heatmap` (expression or grid) with `colorbar`, `errorbars`, uncertainty `band`, fitted curve
+  (`fit`: linear, polynomial, exponential, Gaussian, power, logistic; formula and R² in the label),
+  `spectrum` with automatic or listed peak labels, 2D histogram (`hist2d`), `vectorfield` and `streamlines`
+  with flowing dashes.
+- **Optics**: `lens`, `mirror` (flat or curved, beam splitter, absorber), `rays` traced through them in the
+  paraxial approximation, and `wavefront`.
+- **Molecules** from PDB and XYZ files with bonds from CONECT records or distances: ball-and-stick,
+  space-filling, sticks, wire, and a ribbon along the backbone with ligands kept as balls and sticks.
+- **Matplotlib figures** redrawn at every frame by a function in your script (`film.add_figure(func)`). The
+  project file stores only the function's name, never code, plus a snapshot shown in the editor.
+- **Scale bars and units**: `scalebar` for images (from the pixel size) and charts, `scalebar3d` in scene
+  units, and `{value:si:m}` in text for SI prefixes (2.5 mm, 12 nm).
+- **AI assistants**: `sciview mcp` is a Model Context Protocol server with checked tools (describe the film,
+  get schemas, add objects, set values and keyframes, timing, grouping, placing, render a frame, validate,
+  review). Locked objects are never touched, and `--time` and `--ids` limit the scope. With `--editor`, changes
+  appear live in the open editor and Ctrl+Z takes them back like your own edits; edits you make at the
+  same moment are kept.
+  The same tools are available in Python (`sciview.agent.FilmTools`).
+- Two templates: **Tomography** and **Lenses and mirrors**.
+- `science` extra (scikit-image, SciPy, tifffile, h5py).
+
+### Changed
+- The object library has two new sections, Imaging and Optics.
+- `Project.problems()` also checks file patterns, data-track files and columns, and expressions of x and y.
+- Cached layers notice changes in the objects they refer to (a back-projection follows its sinogram).
+- `Project.problems()` reports reference fields that point at the wrong kind of object.
+
+### Fixed
+- Problems found while an object's values are worked out (such as a data track) now name the object, so the
+  editor marks its row and field.
+- The editor's server no longer prints a traceback when the browser closes a connection early.
+
 ## [0.2.0] - 2026-11-20
 
 Building a talk-length film in the editor is now comfortable: groups, direct manipulation in 3D, custom
