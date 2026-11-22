@@ -96,6 +96,7 @@ export function drag3dProps(obj) {
   if (obj.type === 'label3d') return { props: ['point'], anchor: valueAt(obj, 'point', t) };
   if (obj.type === 'group') return { props: ['position'], anchor: add(valueAt(obj, 'pivot3d', t), valueAt(obj, 'position', t)) };
   if (obj.type === 'grid3d') return null;                // the floor: dragging it orbits instead
+  if (obj.type === 'scalebar3d') return { props: ['origin'], anchor: valueAt(obj, 'origin', t) };
   const sc = schemaOf(obj);
   const hasCenter = sc && sc.props.some((p) => p.name === 'center' && p.kind === 'vec3');
   return hasCenter ? { props: ['center'], anchor: valueAt(obj, 'center', t) } : null;

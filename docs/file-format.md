@@ -49,7 +49,27 @@ enough to diff in git and to generate from other programs.
   * optional `parent`: the id of the group the object belongs to (an object of type `group`). Groups add
     their transform, opacity, effects and visible span to their members. Members usually sit next to their
     group in the list, but drawing order is still the list order;
-  * optional `visible: false` and `locked: true`.
+  * optional `visible: false` and `locked: true`;
+  * optional `tracks`: properties that follow table columns over time (see below).
+
+A data track, here a counter that follows a temperature log recorded in minutes:
+
+```json
+{ "id": "text1", "type": "text", "props": { "text": "T = {value:.0f} K" },
+  "tracks": { "value": { "data": "assets/furnace.csv", "time": "minutes", "column": "temperature",
+                         "time_scale": 60.0, "time_offset": 2.0, "scale": 1.0, "offset": 0.0, "smooth": true } } }
+```
+
+At film time `t` the table is read at `(t - time_offset) * time_scale` in units of the time column, the value
+is interpolated (`smooth: false` holds each row) and becomes `value * scale + offset`. Vector properties name
+two or three columns, `"column": "x, y, z"`. The camera can have `tracks` too.
+
+A file field may hold a pattern (`*`, `?` or `[...]`) instead of one path, such as `"assets/run/out_*.csv"`:
+the object shows one file per step, in natural order. The step shown is `step + steps_per_second × (time since
+the object appeared)`, so either property can drive it.
+
+A **Matplotlib figure** stores only the name of the Python function that draws it (`"callback"`), never code,
+and a `snapshot` picture used when that function is not available.
 
 A group in the list:
 
@@ -62,6 +82,9 @@ A group in the list:
 
 Files from SciView 0.1 open unchanged; files using groups or custom curves open in 0.1 with warnings about the
 unknown `group` type and fall back to smooth easing.
+
+Files from SciView 0.2 open unchanged in 0.3. Files using the new object types, data tracks or file patterns
+open in 0.2 with warnings about what it does not know.
 
 Values: numbers, booleans, strings; colours as `"#rrggbb"` or a palette name; vectors as lists; `array`
 properties as lists of numbers or as text (`"1, 2, 3"`).

@@ -125,6 +125,8 @@ class EditorSession:
         # autosave
         self.autosaved_rev = self.rev
         self.recovery: dict | None = None
+        self.external_rev = 0          # revision of the last change made by an agent
+        self.external_note = ""
         self.check_recovery()
 
     # ------------------------------------------------------------------ autosave
@@ -212,10 +214,15 @@ class EditorSession:
     def path(self) -> Path:
         return Path(self.project.path)
 
-    def set_project(self, proj: Project, mark_saved: bool = False) -> None:
+    def set_project(self, proj: Project, mark_saved: bool = False, expect_rev: int | None = None,
+                    external_note: str | None = None) -> None:
+        """Replace the project. With ``expect_rev``, only if the revision is still that one (else
+        ValueError('conflict')); ``external_note`` marks the change as made by an agent."""
         # wait for a frame being drawn to finish, so it never sees two projects (lock order:
         # render_lock, then lock; _render never holds both)
         with self.render_lock, self.lock:
+            if expect_rev is not None and int(expect_rev) != self.rev:
+                raise ValueError("conflict")
             if proj.path is None:
                 proj.path = self.path
             self.project = proj
@@ -224,6 +231,9 @@ class EditorSession:
             self.rev += 1
             if mark_saved:
                 self.saved_rev = self.rev
+            if external_note is not None:
+                self.external_rev = self.rev
+                self.external_note = str(external_note)[:300]
             self.cache.clear()
 
     def assets(self) -> list[dict]:
@@ -241,6 +251,13 @@ class EditorSession:
                 seen[rel] = {"path": rel, "kind": asset_kind(rel), "size": f.stat().st_size if f.exists() else None,
                              "missing": not f.exists()}
         return list(seen.values())
+
+    def apply_external(self, data: dict, base_rev: int, note: str = "") -> int:
+        """A change from an agent (MCP server): applied only if nobody changed the film since base_rev.
+        Raises ValueError('conflict') otherwise. Returns the new revision."""
+        proj = Project.from_json(data, self.project.path)
+        self.set_project(proj, expect_rev=base_rev, external_note=note or "")
+        return self.rev
 
     def state(self) -> dict:
         from .export import FORMATS, find_ffmpeg
@@ -423,6 +440,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._file(p) if p else self._error("not found", 404)
             if path == "/api/state":
                 return self._json(s.state())
+            if path == "/api/project":
+                return self._json({"project": s.project.to_json(), "rev": s.rev, "path": str(s.path),
+                                   "base_dir": str(s.project.base_dir)})
+            if path == "/api/changes":
+                return self._json({"rev": s.rev, "external_rev": s.external_rev, "note": s.external_note})
             if path == "/api/frame":
                 t = float(q.get("t", 0))
                 scale = min(2.0, max(0.1, float(q.get("scale", 0.5))))
@@ -472,6 +494,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, s.project.captions_srt().encode(), "text/plain; charset=utf-8",
                                   {"Content-Disposition": 'attachment; filename="captions.srt"'})
             return self._error("not found", 404)
+        except (BrokenPipeError, ConnectionResetError):
+            return None                       # the browser went away (closed tab, newer frame asked for)
         except Exception as exc:
             return self._error(f"{type(exc).__name__}: {exc}", 500)
 
@@ -483,13 +507,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._error("forbidden", 403)
         s = self.session
         try:
-            if self.path == "/api/project":
+            url = urllib.parse.urlparse(self.path)
+            q = dict(urllib.parse.parse_qsl(url.query))
+            if url.path == "/api/project":
                 data = self._body_json()
+                if "base" in q and s.external_rev > int(q["base"]):
+                    # an agent changed the film after this editor last saw it: do not overwrite that
+                    return self._json({"error": "conflict", "rev": s.rev, "external_rev": s.external_rev,
+                                       "note": s.external_note}, 409)
                 proj = Project.from_json(data, s.project.path)
                 s.set_project(proj)
                 problems = proj.problems()
                 return self._json({"rev": s.rev, "issues": [p["message"] for p in problems], "problems": problems})
             return self._error("not found", 404)
+        except (BrokenPipeError, ConnectionResetError):
+            return None
         except Exception as exc:
             return self._error(f"{exc}", 400)
 
@@ -548,6 +580,15 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._body_json()
                 s.recover(body.get("action", "discard"))
                 return self._json(s.state())
+            if path == "/api/agent":
+                body = self._body_json()
+                try:
+                    rev = s.apply_external(body["project"], int(body.get("base_rev", -1)), body.get("note", ""))
+                except ValueError as exc:
+                    if str(exc) == "conflict":
+                        return self._json({"error": "the film changed meanwhile; read it again", "rev": s.rev}, 409)
+                    raise
+                return self._json({"rev": rev})
             if path == "/api/assets":
                 fname = Path(urllib.parse.unquote(self.headers.get("X-Filename", "upload.bin"))).name
                 fname = re.sub(r"[^A-Za-z0-9._\- ]+", "_", fname).strip() or "upload.bin"
@@ -579,6 +620,8 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._body_json()
                 return self._json({"columns": list(s.renderer.assets.table(body.get("path", "")).keys())})
             return self._error("not found", 404)
+        except (BrokenPipeError, ConnectionResetError):
+            return None
         except Exception as exc:
             return self._error(f"{exc}", 400)
 

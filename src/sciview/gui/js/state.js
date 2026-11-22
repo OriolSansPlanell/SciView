@@ -400,12 +400,54 @@ async function doSync() {
   if (syncing) await syncing;
   if (!needSync) return;
   needSync = false;
-  syncing = api.putProject(S.project)
-    .then((r) => { S.issues = r.issues || []; S.problems = r.problems || []; emit('issues'); })
-    .catch((e) => emit('error', `Could not update the preview: ${e.message}`))
+  syncing = api.putProject(S.project, S.rev)
+    .then((r) => { S.rev = r.rev; S.issues = r.issues || []; S.problems = r.problems || []; emit('issues'); })
+    .catch(async (e) => {
+      if (e.status === 409) await pullExternal();          // an assistant changed the film first
+      else emit('error', `Could not update the preview: ${e.message}`);
+    })
     .finally(() => { syncing = null; });
   await syncing;
   requestFrame();
+}
+
+// ------------------------------------------------------------------ changes from an assistant (MCP)
+/** Take the film from the server after an agent changed it: one undo step, preview updated. */
+export async function pullExternal() {
+  let r;
+  try { r = await api.project(); } catch (e) { return; }
+  if (!r || r.rev === S.rev) return;
+  undoStack.push(JSON.stringify(S.project));
+  if (undoStack.length > 300) undoStack.shift();
+  redoStack.length = 0;
+  lastCoalesce = null;
+  S.project = r.project;
+  S.rev = r.rev;
+  normalize();
+  S.selection = S.selection.filter((id) => objById(id));
+  if (S.selected && !objById(S.selected)) S.selected = S.selection.length ? S.selection[S.selection.length - 1] : null;
+  markDirty();
+  let note = '';
+  try { note = (await api.changes()).note; } catch (e) { /* ignore */ }
+  emit('project', { external: true, source: 'agent' });
+  emit('agent', note || 'The assistant changed the film');
+  requestFrame();
+}
+
+let watching = false;
+export function watchExternal(interval = 1200) {
+  if (watching) return;
+  watching = true;
+  const tick = async () => {
+    try {
+      if (!needSync && !syncing && !document.hidden) {
+        const c = await api.changes();
+        if (c.external_rev > S.rev && c.rev !== S.rev) await pullExternal();
+      }
+    } catch (e) { /* server stopped: try again later */ }
+    setTimeout(tick, interval);
+  };
+  setTimeout(tick, interval);
 }
 
 export async function synced() {
@@ -473,6 +515,7 @@ export function applyState(st, { keepTime = false } = {}) {
   S.issues = st.issues || [];
   S.problems = st.problems || [];
   S.recovery = st.recovery || null;
+  S.rev = st.rev;
   normalize();
   if (!keepTime) S.time = 0;
   S.time = Math.min(S.time, duration());

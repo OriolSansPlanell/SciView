@@ -8,6 +8,7 @@ import numpy as np
 from ..engine.camera import rotation_matrix
 from ..engine.color import COLORMAPS, apply_colormap
 from ..engine.surface import arrow_head, truncate_path
+from . import data as seqdata
 from .base import Prop, SceneObject, State, Values, parse_array, register
 
 G_GEO, G_LOOK, G_IMG, G_DATA, G_MOTION = "Geometry", "Appearance", "Image", "Data", "Particles"
@@ -243,8 +244,10 @@ class Sphere(Object3D):
 
 
 def prepare_image(ctx, v, key_extra=(), max_side=640):
-    """Colour image (h,w,3) for an image property group, with optional neutron-by-neutron build-up."""
-    img = ctx.assets.image_resized(v.image, max_side)
+    """Colour image (h,w,3) for an image property group, with optional neutron-by-neutron build-up.
+    A file pattern shows the file of the current step."""
+    rel = seqdata.current_file(ctx, v, "image")
+    img = ctx.assets.image_resized(rel, max_side)
     vmin = None if v.vmin == v.vmax else float(v.vmin)
     vmax = None if v.vmin == v.vmax else float(v.vmax)
     counts = float(v.get("counts", 0))
@@ -257,7 +260,7 @@ def prepare_image(ctx, v, key_extra=(), max_side=640):
         rgb, alpha = None, None
     if counts > 0 and buildup < 1.0 + 1e-9:
         gray = img if img.ndim == 2 else img[..., :3].mean(axis=2)
-        key = ("buildup", v.image, ctx.assets.stamp(v.image), img.shape, counts, vmin, vmax, int(v.get("seed", 0)))
+        key = ("buildup", rel, ctx.assets.stamp(rel), img.shape, counts, vmin, vmax, int(v.get("seed", 0)))
 
         def make():
             lo = float(np.nanmin(gray)) if vmin is None else vmin
@@ -274,7 +277,7 @@ def prepare_image(ctx, v, key_extra=(), max_side=640):
             col = rgb * np.clip(shown / np.maximum(norm, 1e-3), 0, 1.5)[..., None]
         return col.astype(np.float32), alpha
     if rgb is None:
-        key = ("cmap", v.image, ctx.assets.stamp(v.image), img.shape, v.colormap, vmin, vmax, float(v.get("gamma", 1.0)))
+        key = ("cmap", rel, ctx.assets.stamp(rel), img.shape, v.colormap, vmin, vmax, float(v.get("gamma", 1.0)))
         col = ctx.assets.memo(key, lambda: apply_colormap(img, v.colormap, vmin, vmax, float(v.get("gamma", 1.0))))
     else:
         col = rgb
@@ -294,6 +297,7 @@ IMAGE_PROPS = [
     Prop("counts", "number", 0.0, min=0, step=1, group=G_IMG,
          help="Counts per bright pixel for the build-up noise. 0 = smooth fade"),
     Prop("pixelated", "bool", False, group=G_IMG, help="Show pixels as sharp squares"),
+    *seqdata.seq_props(G_IMG),
 ]
 
 
@@ -316,6 +320,9 @@ class Screen(Object3D):
         Prop("image_glow", "number", 0.35, min=0, max=3, step=0.05, group=G_IMG),
         Prop("flip", "bool", False, group=G_IMG, help="Mirror the image left-right"),
     ]
+
+    def depends_on_time(self) -> bool:
+        return super().depends_on_time() or seqdata.plays_by_itself(self, "image")
 
     def _axes(self, v):
         R = rotation_matrix(*v.rotation)
@@ -579,6 +586,7 @@ class PointCloud(Object3D):
         Prop("x_values", "array", "", group=G_DATA, help="Or type numbers: 1, 2, 3"),
         Prop("y_values", "array", "", group=G_DATA),
         Prop("z_values", "array", "", group=G_DATA),
+        *seqdata.seq_props(G_DATA),
         Prop("center", "vec3", [0, 0, 0], group=G_GEO, help="Where the data origin goes"),
         Prop("scale", "number", 1.0, min=0, step=0.1, group=G_GEO),
         Prop("rotation", "vec3", [0, 0, 0], group=G_GEO),
@@ -590,12 +598,15 @@ class PointCloud(Object3D):
         Prop("glow", "number", 0.8, min=0, max=4, step=0.05, group=G_LOOK),
     ]
 
+    def depends_on_time(self) -> bool:
+        return super().depends_on_time() or seqdata.plays_by_itself(self, "data")
+
     def _data(self, ctx, v):
         if v.data:
-            xs = ctx.assets.column(v.data, v.x_column)
-            ys = ctx.assets.column(v.data, v.y_column)
-            zs = ctx.assets.column(v.data, v.z_column)
-            cvals = ctx.assets.column(v.data, v.color_by) if v.color_by else None
+            xs = seqdata.column(ctx, v, v.x_column)
+            ys = seqdata.column(ctx, v, v.y_column)
+            zs = seqdata.column(ctx, v, v.z_column)
+            cvals = seqdata.column(ctx, v, v.color_by) if v.color_by else None
         else:
             xs, ys, zs = parse_array(v.x_values), parse_array(v.y_values), parse_array(v.z_values)
             cvals = None

@@ -101,6 +101,47 @@ def arrow_head(tip: np.ndarray, direction: np.ndarray, size: float, width_ratio:
 
 
 # --------------------------------------------------------------------------- canvas
+class Painter:
+    """Opaque shapes drawn in order into a scratch RGBA buffer, then blended into a canvas once."""
+
+    def __init__(self, canvas: Canvas, roi):
+        self.canvas = canvas
+        self.roi = roi
+        x0, y0, x1, y1 = roi
+        self.buf = np.zeros((y1 - y0, x1 - x0, 4), np.float32)
+
+    def ipts(self, pts) -> np.ndarray:
+        return Canvas._ipts(self.canvas._t(pts), self.roi)
+
+    def circle(self, x: float, y: float, r: float, color) -> None:
+        p = self.ipts(np.array([[x, y]], np.float64))[0]
+        c = np.asarray(color, np.float32)
+        cv2.circle(self.buf, (int(p[0]), int(p[1])), max(1, int(round(r * _ONE))),
+                   (float(c[0]), float(c[1]), float(c[2]), 1.0), -1, cv2.LINE_8, _SHIFT)
+
+    def line(self, p0, p1, width: float, color) -> None:
+        ip = self.ipts(np.array([p0, p1], np.float64))
+        c = np.asarray(color, np.float32)
+        cv2.line(self.buf, (int(ip[0, 0]), int(ip[0, 1])), (int(ip[1, 0]), int(ip[1, 1])),
+                 (float(c[0]), float(c[1]), float(c[2]), 1.0), max(1, int(round(width))), cv2.LINE_8, _SHIFT)
+
+    def polygon(self, pts, color) -> None:
+        ip = self.ipts(np.asarray(pts, np.float64))
+        c = np.asarray(color, np.float32)
+        cv2.fillPoly(self.buf, [ip], (float(c[0]), float(c[1]), float(c[2]), 1.0), cv2.LINE_8, _SHIFT)
+
+    def done(self, alpha: float = 1.0, glow: float = 0.0) -> None:
+        mask = self.buf[..., 3]
+        rgb = self.buf[..., :3]
+        # half a pixel of anti-aliasing on the outline: blur the coverage, spread colour into the fringe
+        soft = cv2.blur(mask, (3, 3))
+        fringe = (soft > 0) & (mask < 1)
+        if fringe.any():
+            grown = cv2.dilate(rgb, np.ones((3, 3), np.uint8))
+            rgb[fringe] = grown[fringe]
+        self.canvas.composite_rgb(self.roi, rgb, soft, alpha, glow)
+
+
 class Canvas:
     """Float RGB canvas with a glow buffer, clip rectangles and anti-aliased primitives.
 
@@ -440,6 +481,33 @@ class Canvas:
         else:
             self.composite(roi, m, color, alpha, glow, additive)
         return roi
+
+    def triangles(self, xy: np.ndarray, tris: np.ndarray, colors: np.ndarray, alpha: float = 1.0,
+                  glow: float = 0.0) -> None:
+        """Opaque shaded triangles (indices ``tris`` into points ``xy``), painted in the given order
+        (sort them back to front), then blended into the canvas once with ``alpha``.
+
+        Used for isosurfaces and ribbons: one composite instead of one per face.
+        """
+        tris = np.asarray(tris, np.int64).reshape(-1, 3)
+        if len(tris) == 0 or alpha <= 0:
+            return
+        pt = self.painter(np.asarray(xy)[np.unique(tris)], 2)
+        if pt is None:
+            return
+        ip = pt.ipts(xy)
+        cols = np.asarray(colors, np.float32).reshape(-1, 3)
+        for tri, c in zip(ip[tris], cols):
+            cv2.fillConvexPoly(pt.buf, tri, (float(c[0]), float(c[1]), float(c[2]), 1.0), cv2.LINE_8, _SHIFT)
+        pt.done(alpha, glow)
+
+    def painter(self, pts: np.ndarray, pad: float) -> Painter | None:
+        """An opaque scratch layer over the area of ``pts`` (output px) for painter's-algorithm drawing;
+        call its ``done`` to blend it into the canvas in one step (molecules, meshes)."""
+        roi = self._roi(self._t(pts), pad)
+        if roi is None:
+            return None
+        return Painter(self, roi)
 
     def warp(self, img: np.ndarray, quad: np.ndarray, alpha: float = 1.0, glow: float = 0.0,
              mask: np.ndarray | None = None, nearest: bool = False) -> None:

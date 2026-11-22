@@ -23,8 +23,9 @@ into a talk.
 * **The same film in Python**: generate scenes from your own data with NumPy and render them from scripts or
   notebooks.
 * **Made for science**: particle beams with scattering, detector images that build up count by count,
-  charts whose axes, curves and markers animate, LaTeX equations, sub- and superscripts everywhere
-  (`H_2O`, `^6Li`, `\mu`), subtitles exported for accessibility.
+  tomography from sinogram to volume, molecules, ray optics, charts with error bars and fits whose axes,
+  curves and markers animate, LaTeX equations, sub- and superscripts everywhere (`H_2O`, `^6Li`, `\mu`),
+  subtitles exported for accessibility.
 * **Easy to install**: pure Python on NumPy, OpenCV and Pillow. ffmpeg comes with the package. No LaTeX, no
   Cairo, no GPU needed.
 
@@ -36,7 +37,8 @@ into a talk.
 pip install "sciview[math] @ git+https://github.com/OriolSansPlanell/SciView"
 ```
 
-The `math` extra installs matplotlib, which renders the LaTeX equations. SciView needs Python 3.10 or newer
+The `math` extra installs matplotlib, which renders the LaTeX equations; add `science` (`sciview[math,science]`)
+for isosurfaces, TIFF stacks, HDF5 volumes and SciPy fits. SciView needs Python 3.10 or newer
 and works on Windows, macOS and Linux.
 
 ## Make your first film
@@ -97,21 +99,34 @@ sciview render film.sciview.json -o film.mp4   # render; --scale 2 for 4K, --sta
 sciview still film.sciview.json -t 4.5 --scale 2   # a 3840 px PNG of one moment, for papers and posters
 sciview subtitles film.sciview.json            # captions as an .srt file
 sciview check film.sciview.json                # missing files, broken references, bad expressions
+sciview mcp film.sciview.json                  # let an AI assistant edit the film (MCP server)
 ```
 
 ## What you can put in a film
 
-<p align="center"><img src="docs/images/templates.jpg" alt="Frames from the six templates: imaging beamline, step-by-step analysis, scatter and thresholds, animated equations, 3D structure, title card" width="900"></p>
+<p align="center"><img src="docs/images/templates.jpg" alt="Frames from the eight templates: imaging beamline, step-by-step analysis, tomography, scatter and thresholds, animated equations, lenses and mirrors, 3D structure, title card" width="900"></p>
 
 | | Objects |
 | --- | --- |
-| **3D scene** | box, cylinder, sphere, screen/detector with an image, particle beam with scattering, 3D arrow, floor grid, point cloud from a table, STL/OBJ model, 3D label |
-| **Text** | title, caption (also exported as subtitles), text with live counters, LaTeX equation, legend |
-| **Charts** | axes (linear or log, animatable ranges), curve from an expression or data, scatter, bars, histogram, marker that follows a curve, threshold line |
+| **3D scene** | box, cylinder, sphere, screen/detector with an image, particle beam with scattering, 3D arrow, floor grid, point cloud from a table, STL/OBJ model, 3D label, volume (slices, maximum-intensity projection, isosurface) from `.npy`, TIFF stacks or HDF5, molecule from PDB/XYZ (ball-and-stick, space-filling, ribbon), 3D scale bar |
+| **Text** | title, caption (also exported as subtitles), text with live counters and SI prefixes, LaTeX equation, legend |
+| **Charts** | axes (linear or log, animatable ranges), curve from an expression or data, scatter, bars, histogram, marker that follows a curve, threshold line, heatmap with colour bar, error bars, uncertainty band, fitted curve, spectrum with labelled peaks, 2D histogram, vector field, streamlines, matplotlib figure redrawn per frame (from Python) |
+| **Imaging** | sinogram recorded angle by angle, filtered back-projection that builds up the slice, scale bar from the pixel size, pixels that fly into a scatter plot or histogram bins |
+| **Optics** | thin lenses, flat and curved mirrors, beam splitters, rays traced through them, wavefronts |
 | **Shapes & media** | panel/card with numbered badge, rectangle, ellipse, arrow, image (PNG, 16-bit TIFF, NumPy arrays, with colormaps), group |
 
-Curve expressions can use time: `sin(x - 2*t)` is a travelling wave. The full list of properties is in the
+Curve expressions can use time: `sin(x - 2*t)` is a travelling wave. Any number can follow a column of a table
+over time (a **data track**), and any file field can play a series of files, one per step: a stack of
+radiographs, the outputs of a simulation. The full list of properties is in the
 [object reference](docs/objects.md).
+
+## Let an AI assistant help
+
+`sciview mcp film.sciview.json` lets an AI assistant (Claude Desktop, a local model in LM Studio, any
+[MCP](https://modelcontextprotocol.io) client) read the film, add and animate objects and look at frames
+through a small set of checked tools. It never runs code, keeps away from locked objects and can be limited
+to a time window or a few objects. Pointed at the open editor, its changes appear live and Ctrl+Z takes
+them back. See [AI assistants](docs/agent.md).
 
 ## How it works
 
@@ -137,6 +152,7 @@ that anyone can make films like them without writing a renderer.
 * [Python guide](docs/python-api.md)
 * [Object reference](docs/objects.md)
 * [Rendering and sharing](docs/rendering.md)
+* [AI assistants](docs/agent.md)
 * [Project file format](docs/file-format.md)
 * [Troubleshooting](docs/troubleshooting.md)
 

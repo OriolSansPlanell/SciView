@@ -13,7 +13,6 @@ offset, 3D members with a camera moved into the group's coordinates.
 from __future__ import annotations
 
 import json
-import os
 import time
 import traceback
 from collections import OrderedDict
@@ -136,6 +135,7 @@ class Renderer:
             if parent is None:
                 out[gid] = None
                 return None
+            ctx.current = gid
             v = g.resolve(t, ctx)
             sig = float(v.scale) * st.scale
             pv = np.asarray(v.pivot, np.float64)
@@ -183,16 +183,19 @@ class Renderer:
                       offset=cam.offset, up=up, near=cam.near / max(xf.sig, 1e-9))
 
     # ------------------------------------------------------------------ cache keys
-    def _fingerprint(self, obj: SceneObject, t: float) -> str:
+    def _fingerprint(self, obj: SceneObject, t: float, _depth: int = 0) -> str:
         parts = [obj.TYPE, json.dumps(obj.props, sort_keys=True, default=str)]
         if obj.keys:
             parts.append(json.dumps(obj.keyed_values(t), sort_keys=True, default=str))
         for p in obj.all_props():
             if p.kind == "asset" and obj.props.get(p.name):
-                try:
-                    parts.append(str(os.stat(self.assets.resolve(obj.props[p.name])).st_mtime_ns))
-                except OSError:
-                    parts.append("missing")
+                parts.append(str(self.assets.stamp(obj.props[p.name])))
+        # what it is drawn from (a chart, a source image, a sinogram) is part of how it looks
+        if _depth < 3:
+            for ref in obj.refs():
+                r = self.project.find(ref)
+                if r is not None and r is not obj:
+                    parts.append(self._fingerprint(r, t, _depth + 1))
         return "|".join(parts)
 
     def _static(self, obj: SceneObject, t: float, xf: Xform, cam_animated: bool) -> bool:
@@ -206,7 +209,8 @@ class Renderer:
             return False
         for ref in obj.refs():
             r = self.project.find(ref)
-            if r is not None and ((r.keys and not r.held(t)) or not r.steady(t, self.project.duration)):
+            if r is not None and ((r.keys and not r.held(t)) or not r.steady(t, self.project.duration)
+                                  or r.depends_on_time()):
                 return False
         return True
 
@@ -217,8 +221,8 @@ class Renderer:
         self.assets.base_dir = proj.base_dir
         W, H = out_size(proj, scale)
         s = W / proj.size[0]
-        cam = proj.camera_at(t, W, H, s)
-        cam_animated = bool(proj.camera.keys)
+        cam = proj.camera_at(t, W, H, s, self.assets)
+        cam_animated = bool(proj.camera.keys) or bool(proj.camera.tracks)
         ctx = RenderContext(proj, self.assets, t, s, W, H, cam)
         cv = Canvas(W, H, s, self.background(W, H, s, ctx))
         dur = proj.duration
@@ -243,10 +247,10 @@ class Renderer:
                 st.opacity *= xf.opacity
                 if st.opacity <= 1e-4:
                     continue
+            ctx.current = obj.id                  # warnings while resolving (data tracks) name the object
             try:
                 v = obj.resolve(t, ctx)
             except Exception as exc:  # pragma: no cover - defensive
-                ctx.current = obj.id
                 ctx.warn(f"{obj.name}: {exc}")
                 continue
             static = self._static(obj, t, xf, cam_animated)
@@ -255,10 +259,6 @@ class Renderer:
                 key = (obj.id, self._fingerprint(obj, t), _st_key(st), xf.key)
                 if obj.IS_3D:
                     key += (cam_key,)
-                for ref in obj.refs():
-                    r = proj.find(ref)
-                    if r is not None:
-                        key += (self._fingerprint(r, t),)
             it = Item(obj, v, st, xf, "geom" if obj.IS_3D else "2d", static, key)
             if obj.IS_3D:
                 try:

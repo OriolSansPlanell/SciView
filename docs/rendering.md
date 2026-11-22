@@ -42,6 +42,12 @@ uncached render. It notices changed values, palette and files on disk, and keeps
 renderer. While you pause, the editor also renders the next half second in the background, and while you
 play the next three seconds, so scrubbing and playback show cached frames.
 
+Some objects take more work: an isosurface of a large volume is computed once per threshold (lower
+**Max size** or raise **Smoothness** while drafting), and a Matplotlib figure redrawn by a Python function runs
+that function at every frame. Films with such figures render in a single process, because the function lives
+in your script and cannot be sent to other processes. Mark a figure that does not change with `still=True` so
+it is drawn once and cached.
+
 ## Sound
 
 Set **Audio** in the film settings (or drop an audio file on the preview) to add narration or music; **Audio

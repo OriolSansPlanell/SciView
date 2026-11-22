@@ -15,14 +15,19 @@ async function request(method, url, body, headers = {}) {
   const data = type.includes('json') ? await res.json() : await res.text();
   if (!res.ok) {
     const msg = (data && data.error) || res.statusText || 'request failed';
-    throw new Error(msg);
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    throw err;
   }
   return data;
 }
 
 export const api = {
   state: () => request('GET', '/api/state'),
-  putProject: (project) => request('PUT', '/api/project', project),
+  putProject: (project, base) => request('PUT', base == null ? '/api/project' : `/api/project?base=${base}`, project),
+  project: () => request('GET', '/api/project'),
+  changes: () => request('GET', '/api/changes'),
   frame: async (t, scale, play = false) => {
     const res = await fetch(`/api/frame?t=${t.toFixed(4)}&scale=${scale}${play ? '&play=1' : ''}`);
     if (!res.ok) {

@@ -18,6 +18,7 @@ nav:
   - Python guide: python-api.md
   - Object reference: objects.md
   - Rendering and sharing: rendering.md
+  - AI assistants: agent.md
   - Project file format: file-format.md
   - Troubleshooting: troubleshooting.md
 markdown_extensions:

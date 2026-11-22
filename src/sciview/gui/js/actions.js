@@ -24,6 +24,7 @@ function movableProps(o) {
   if (names.includes('position')) return ['position'];
   if (o.type === 'ellipse') return ['center'];
   if (o.type === 'arrow') return ['tail', 'tip'];
+  if (names.includes('source') && (o.type === 'rays' || o.type === 'wavefront')) return ['source'];
   return [];
 }
 

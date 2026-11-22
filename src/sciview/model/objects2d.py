@@ -9,6 +9,8 @@ import numpy as np
 
 from ..engine.surface import arrow_head, ellipse_points, rounded_rect, truncate_path
 from ..engine.text import MATH_ERRORS, render_math
+from ..engine.units import format_number
+from . import data as seqdata
 from .base import Prop, SceneObject, register
 from .objects3d import IMAGE_PROPS, prepare_image
 
@@ -17,7 +19,7 @@ WEIGHTS = ("light", "regular", "medium", "bold")
 ALIGN = ("left", "center", "right")
 VALIGN = ("top", "middle", "bottom", "baseline")
 
-_FMT = re.compile(r"\{(value|x|y)(?::([^{}]*))?\}")
+_FMT = re.compile(r"\{(value|x|y|t)(?::([^{}]*))?\}")
 
 
 def format_values(text: str, **values) -> str:
@@ -27,7 +29,7 @@ def format_values(text: str, **values) -> str:
         if name not in values:
             return m.group(0)
         try:
-            return format(values[name], spec or "g")
+            return format_number(values[name], spec)
         except (ValueError, TypeError):
             return str(values[name])
     return _FMT.sub(rep, text)
@@ -126,7 +128,8 @@ class Text(Object2D):
     TEXTUAL = True
     PROPS = [
         Prop("text", "longtext", "Text", group=G_TEXT,
-             help="Markup: H_2O, ^6Li, x_{max}, \\alpha, **bold**. {value:.2f} shows the Value below"),
+             help="Markup: H_2O, ^6Li, x_{max}, \\alpha, **bold**. {value:.2f} shows the Value below, "
+                  "{value:si:m} with an SI prefix (2.5 mm), {t:.1f} the film time"),
         Prop("value", "number", 0.0, group=G_TEXT, help="Animate it to make a counter"),
         Prop("position", "vec2", [960, 540], group=G_POS),
         Prop("size", "number", 36, min=4, max=300, step=1, group=G_LOOK),
@@ -144,7 +147,7 @@ class Text(Object2D):
 
     def draw(self, cv, ctx, v, st):
         a = v.opacity * st.opacity
-        text = format_values(v.text, value=float(v.value))
+        text = format_values(v.text, value=float(v.value), t=ctx.t)
         if abs(float(v.rotation)) < 0.01:
             return ctx.draw_text(cv, text, v.position[0] + st.dx, v.position[1] + st.dy, v.size, v.color,
                                  align=v.align, valign=v.valign, opacity=a, glow=v.glow, weight=v.weight,
@@ -431,11 +434,15 @@ class Image2D(Object2D):
         *IMAGE_PROPS,
         Prop("position", "vec2", [960, 540], group=G_POS, help="Centre of the image"),
         Prop("width", "number", 420, min=1, step=1, group=G_POS, help="Pixels; height follows the aspect ratio"),
+        Prop("rotation", "number", 0.0, step=1, group=G_POS, help="Degrees, clockwise (a sample turning on its stage)"),
         Prop("mask", "enum", "none", options=("none", "circle", "rounded"), group=G_LOOK),
         Prop("border_color", "color", "cream", group=G_LOOK),
         Prop("border_width", "number", 0.0, min=0, max=30, step=0.5, group=G_LOOK),
         Prop("glow", "number", 0.3, min=0, max=3, step=0.05, group=G_LOOK, help="Glow of the image itself"),
     ]
+
+    def depends_on_time(self) -> bool:
+        return super().depends_on_time() or seqdata.plays_by_itself(self, "image")
 
     def draw(self, cv, ctx, v, st):
         if not v.image:
@@ -448,6 +455,11 @@ class Image2D(Object2D):
         cx, cy = (v.position[0] + st.dx) * ctx.s, (v.position[1] + st.dy) * ctx.s
         x0, y0 = cx - W / 2, cy - H / 2
         quad = np.array([[x0, y0], [x0 + W, y0], [x0 + W, y0 + H], [x0, y0 + H]])
+        rot = float(v.get("rotation", 0.0))
+        if rot:
+            c, sn = math.cos(math.radians(rot)), math.sin(math.radians(rot))
+            d = quad - (cx, cy)
+            quad = np.stack([d[:, 0] * c - d[:, 1] * sn, d[:, 0] * sn + d[:, 1] * c], 1) + (cx, cy)
         mask = alpha
         if v.mask == "circle":
             yy, xx = np.mgrid[0:h, 0:w]
@@ -463,8 +475,10 @@ class Image2D(Object2D):
         if v.border_width > 0:
             if v.mask == "circle":
                 cv.circle(cx, cy, min(W, H) / 2, stroke=v.border_color, stroke_alpha=a, width=v.border_width * ctx.s, glow=0.5)
+            elif rot:
+                cv.polygon(quad, stroke=v.border_color, stroke_alpha=a, width=v.border_width * ctx.s, glow=0.5)
             else:
                 rad = min(W, H) * 0.08 if v.mask == "rounded" else 0
                 cv.polygon(rounded_rect(x0, y0, W, H, rad), stroke=v.border_color, stroke_alpha=a,
                            width=v.border_width * ctx.s, glow=0.5)
-        return (x0, y0, x0 + W, y0 + H)
+        return (float(quad[:, 0].min()), float(quad[:, 1].min()), float(quad[:, 0].max()), float(quad[:, 1].max()))

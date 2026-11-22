@@ -258,6 +258,74 @@ def title_card() -> sv.Project:
     return p
 
 
+def sample_volume(seed: int = 7) -> np.ndarray:
+    """A porous cylinder with a dense inclusion, as a CT scan would give it (uint8, z, y, x)."""
+    rng = np.random.default_rng(seed)
+    nz, ny, nx = 64, 88, 88
+    z, y, x = np.mgrid[0:nz, 0:ny, 0:nx].astype(np.float32)
+    vol = np.where(np.hypot(x - nx / 2, y - ny / 2) < 34, 0.55, 0.0).astype(np.float32)
+    for _ in range(22):
+        c = rng.random(3) * [nz, ny, nx]
+        r = rng.random() * 5 + 2.5
+        vol[(z - c[0]) ** 2 + (y - c[1]) ** 2 + (x - c[2]) ** 2 < r * r] = 0.04
+    vol[(z - 30) ** 2 + (y - 38) ** 2 + (x - 56) ** 2 < 9 ** 2] = 1.0
+    vol += rng.normal(0, 0.025, vol.shape).astype(np.float32)
+    return np.clip(vol * 220 + 20, 0, 255).astype(np.uint8)
+
+
+def tomography() -> sv.Project:
+    from sciview.science import phantom  # noqa: F401  (the slice image is saved by main)
+    p = sv.Project(title="How a tomograph sees inside", duration=22.0, stars=0.2)
+    p.add("title", text="How a tomograph sees inside", subtitle="Projections, a sinogram, and the slice rebuilt",
+          start=0.2, end=3.6)
+    sample = p.add("image", name="Sample slice", image="assets/slice.png", position=(330, 520), width=330,
+                   mask="circle", border_width=2, border_color="teal", start=3.0, end=11.0)
+    sample.key("rotation", 4.0, 0, "linear").key("rotation", 10.0, 180, "linear")
+    p.add("text", name="Sample label", text="the sample turns", position=(330, 300), size=22, color="teal",
+          align="center", start=3.0, end=11.0)
+    sino = p.add("sinogram", name="Sinogram", position=(960, 560), size=(360, 360), resolution=160, angles=180,
+                 profile=True, start=3.4, end=11.0)
+    sino.key("progress", 4.0, 0.0, "linear").key("progress", 10.0, 1.0, "linear")
+    p.add("backprojection", name="Rebuilt slice", sinogram=sino.id, position=(1590, 560), size=(360, 360),
+          start=3.8, end=11.0)
+    p.add("text", name="Rebuilt label", text="filtered back-projection", position=(1590, 330), size=22, color="gold",
+          align="center", start=3.8, end=11.0)
+    p.add("caption", text="Each angle gives one projection: a row of the sinogram.", start=4.0, end=7.5)
+    p.add("caption", text="Smearing every row back across the slice, after a ramp filter, rebuilds it.",
+          start=7.5, end=11.0)
+    p.camera.props.update(distance=150, azimuth=-62, elevation=24)
+    p.camera.key("azimuth", 11.0, -62).key("azimuth", 22.0, -10, "in_out")
+    vol = p.add("volume", name="Scan (slices)", data="assets/sample.npy", size=56, spacing=(1, 1, 1),
+                clear_below=0.15, colormap="ice", start=11.2, end=16.6)
+    vol.key("slice_z", 11.5, 0.05).key("slice_z", 15.5, 0.95, "in_out")
+    iso = p.add("volume", name="Scan (surface)", data="assets/sample.npy", size=56, mode="isosurface",
+                threshold=0.5, iso_color="teal", smoothness=1, start=16.2)
+    iso.key("threshold", 17.5, 0.42).key("threshold", 20.5, 0.86, "in_out")
+    p.add("scalebar3d", name="Scale", origin=(-28, -36, -16), length=20, unit="0.5 mm", start=11.6)
+    p.add("caption", text="Stack the slices and you have the whole sample: sweep through it…", start=11.4, end=16.4)
+    p.add("caption", text="…or show one grey level as a surface: raise it to reveal the dense inclusion.",
+          start=16.4, end=21.8)
+    return p
+
+
+def optics() -> sv.Project:
+    p = sv.Project(title="Lenses and mirrors", duration=14.0, stars=0.15)
+    p.add("title", text="Lenses and mirrors", subtitle="Rays traced through thin lenses and curved mirrors",
+          start=0.2, end=3.2)
+    axis = p.add("arrow", name="Optical axis", tail=(80, 470), tip=(1840, 470), heads="none", color="gray",
+                 width=1.2, dashed=True, start=2.6)
+    del axis
+    p.add("lens", name="Converging lens", position=(620, 470), focal=260, height=300, start=2.8)
+    beam = p.add("rays", name="Parallel beam", source=(120, 470), spread=180, count=9, color="gold", start=3.4)
+    beam.enter_duration = 3.0
+    p.add("caption", text="A converging lens sends a parallel beam through its focal point F.", start=3.4, end=7.6)
+    p.add("mirror", name="Concave mirror", position=(1640, 470), angle=180, radius=900, height=600, start=7.4)
+    p.add("caption", text="A concave mirror turns the light back and brings it together again.", start=7.6, end=13.8)
+    p.add("wavefront", name="Wavefronts", source=(120, 470), kind="plane", angle=0, wavelength=36, extent=260,
+          range=470, color="blue", start=3.4, end=7.4)
+    return p
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     xr, ne, table = slice_images()
@@ -276,6 +344,13 @@ def main() -> None:
                   {"lattice.csv": lattice_table()})
     save_template(title_card(), "title_card", "Title card",
                   "Title, subtitle, authors and affiliation for the start of a talk.", 60, 5.0)
+    from sciview.science import phantom
+    slice_img = Image.fromarray((phantom(200) * 255).astype(np.uint8))
+    save_template(tomography(), "tomography", "Tomography",
+                  "A turning sample, its sinogram, the rebuilt slice, then the scanned volume.", 25, 8.5,
+                  {"slice.png": slice_img, "sample.npy": sample_volume()})
+    save_template(optics(), "optics", "Lenses and mirrors",
+                  "A parallel beam focused by a lens and a concave mirror, with wavefronts.", 45, 10.0)
     print("templates written to", OUT)
 
 

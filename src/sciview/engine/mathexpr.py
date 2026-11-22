@@ -54,7 +54,8 @@ def compile_expression(src: str, variables: tuple[str, ...] = ("x", "t")):
         if not isinstance(node, _ALLOWED_NODES):
             raise ExpressionError(f"not allowed in expressions: {type(node).__name__}")
         if isinstance(node, ast.Name) and node.id not in allowed:
-            raise ExpressionError(f"unknown name {node.id!r} (use x, t, pi, e and functions like sin, exp)")
+            names = ", ".join(v for v in ("x", "y", "z", "t") if v in variables)
+            raise ExpressionError(f"unknown name {node.id!r} (use {names}, pi, e and functions like sin, exp)")
         if isinstance(node, ast.Call) and not (isinstance(node.func, ast.Name) and node.func.id in FUNCTIONS):
             raise ExpressionError("only functions such as sin, exp, sqrt, gauss can be called")
         if isinstance(node, ast.Constant) and not isinstance(node.value, (int, float)):
