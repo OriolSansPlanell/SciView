@@ -48,6 +48,9 @@ documentation online with a gallery, and the checks that keep it that way.
 - The editor accepts the host name of GitHub Codespaces and of proxies listed in `SCIVIEW_ALLOWED_HOSTS`.
 - Expressions that cannot be evaluated (wrong number of arguments, a function without brackets) raise a clear
   `ExpressionError` instead of a Python error.
+- Text is laid out with Pillow's basic engine on every platform, so a film looks the same, and its text takes
+  the same room, on Windows, macOS and Linux (Pillow used raqm only where its build had it). Set
+  `SCIVIEW_TEXT_LAYOUT=raqm` for scripts that need shaping, such as Arabic or Devanagari.
 
 ### Fixed
 - Damaged project files no longer stop loading: unreadable settings, scenes, cameras and objects are reported

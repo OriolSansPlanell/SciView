@@ -19,6 +19,7 @@ import html
 import io
 import itertools
 import json
+import os
 import shlex
 import threading
 from typing import TYPE_CHECKING
@@ -161,8 +162,11 @@ def _parser() -> argparse.ArgumentParser:
 def sciview_magic(line: str, namespace: dict):
     """What ``%sciview ...`` runs; returns the object Jupyter shows."""
     from .model.project import Project
+    # posix=False keeps Windows paths' backslashes; the quotes it leaves are taken off here
+    words = [w[1:-1] if len(w) > 1 and w[0] == w[-1] and w[0] in "\"'" else w
+             for w in shlex.split(line, posix=os.name != "nt")]
     try:
-        a = _parser().parse_args(shlex.split(line))
+        a = _parser().parse_args(words)
     except SystemExit:
         raise ValueError("usage: %sciview preview|still|edit FILM [TIME] [--fps N] [--scale S] [--start A] "
                          "[--end B] [--scene NAME]") from None

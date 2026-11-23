@@ -59,9 +59,24 @@ def font_path(family: str, weight: str = "regular") -> str:
     return str(FONT_DIR / fam.get(weight, fam["regular"]))
 
 
+def _layout_engine():
+    """Pillow lays text out with raqm where its build has it (most Linux wheels) and with its basic engine
+    elsewhere (Windows, macOS), which spaces letters differently. SciView uses the basic engine everywhere,
+    so a film looks the same, and its text takes the same room, on every computer. SCIVIEW_TEXT_LAYOUT=raqm
+    asks for raqm (needed for scripts such as Arabic or Devanagari) where it is available."""
+    if os.environ.get("SCIVIEW_TEXT_LAYOUT", "").strip().lower() == "raqm":
+        try:
+            from PIL import features
+            if features.check("raqm"):
+                return ImageFont.Layout.RAQM
+        except Exception:  # pragma: no cover
+            pass
+    return ImageFont.Layout.BASIC
+
+
 @lru_cache(maxsize=256)
 def get_font(path: str, size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(path, max(1, int(size)))
+    return ImageFont.truetype(path, max(1, int(size)), layout_engine=_layout_engine())
 
 
 @lru_cache(maxsize=32)

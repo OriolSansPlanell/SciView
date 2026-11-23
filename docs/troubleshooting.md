@@ -27,6 +27,11 @@ fail; SciView then continues in one process. Pass `workers=1` to skip the attemp
 Screens use up to 640 px of the image so previews stay fast. That is plenty at 1920 x 1080; for a close-up of
 a large image, use an Image object (up to 1600 px) or crop the image first.
 
+**Arabic, Hebrew or Indic text looks wrong**
+SciView lays text out the same way on every computer, without the shaping these scripts need. Set
+`SCIVIEW_TEXT_LAYOUT=raqm` before starting SciView to use Pillow's raqm layout where your Pillow has it (most
+Linux installations); the film may then look slightly different on other computers.
+
 **Text uses the wrong font or shows boxes**
 Poppins and Inter are bundled; set another font in the film settings by choosing "Custom font file" and giving
 the path to a `.ttf` or `.otf` file. Characters missing from the chosen font are drawn with Inter.
