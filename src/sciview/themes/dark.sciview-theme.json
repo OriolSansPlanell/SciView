@@ -1,0 +1,15 @@
+{
+  "sciview_theme": 1,
+  "name": "SciView dark",
+  "description": "Deep navy with a starfield and glowing accents: the default look.",
+  "palette": {
+    "teal": "#4fd1c5", "gold": "#ffcf4a", "amber": "#f5a23c", "blue": "#6cb4fc", "ice": "#a5e4fc",
+    "cream": "#f3ead8", "red": "#ff6b6b", "violet": "#c38cff", "green": "#7ee08a", "white": "#ffffff",
+    "gray": "#8b95a7", "navy": "#10182a"
+  },
+  "settings": {
+    "background": "#03070e", "background2": "#111a2c", "background_style": "radial", "stars": 0.4,
+    "vignette": 0.35, "bloom": 0.7, "font": "Poppins"
+  },
+  "styles": {}
+}

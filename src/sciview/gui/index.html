@@ -30,6 +30,7 @@
       <button class="icon-btn" id="btnRedo" title="Redo (Ctrl+Shift+Z)" data-icon="redo"></button>
       <span class="sep"></span>
       <button class="icon-btn" id="btnHelp" title="Shortcuts and text markup (?)" data-icon="help"></button>
+      <button class="btn ghost assistant-btn" id="btnAssistant" title="Ask an AI assistant to build or change the film" aria-expanded="false"><span data-icon="spark"></span>Assistant</button>
       <button class="btn primary" id="btnExport" title="Render the film to a video file">Export video</button>
     </nav>
   </header>
@@ -71,18 +72,29 @@
             <option value="1">Full</option>
           </select>
         </label>
+        <label class="quality">Guides
+          <select id="guides" aria-label="Safe-area guides">
+            <option value="none" selected>None</option>
+            <option value="title">Title safe</option>
+            <option value="square">Square crop</option>
+            <option value="vertical">Vertical crop</option>
+          </select>
+        </label>
         <button class="icon-btn" id="btnSnap" title="Save this frame as a PNG image" data-icon="snapshot"></button>
       </div>
     </div>
   </main>
 
   <aside class="inspector" id="inspector" aria-label="Properties"></aside>
+  <aside class="assistant" id="assistant" aria-label="AI assistant" hidden></aside>
 
   <section class="timeline" id="timeline" aria-label="Timeline">
     <div class="tl-resize" id="tlResize" title="Drag to resize the timeline"></div>
+    <div class="scenes" id="scenes" role="toolbar" aria-label="Scenes"></div>
     <div class="tl-head">
       <div class="tl-corner">
         <span class="tl-title">Timeline</span>
+        <button class="icon-btn small rec" id="btnRecord" title="Record narration from the playhead (R)" aria-label="Record narration" data-icon="mic"></button>
         <div class="tl-zoom">
           <button class="icon-btn small" id="tlFit" title="Fit the whole film" data-icon="fit"></button>
           <input type="range" id="tlZoom" min="10" max="400" value="60" aria-label="Timeline zoom">

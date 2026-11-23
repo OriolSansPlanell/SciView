@@ -213,10 +213,12 @@ class SceneObject:
     def __init__(self, id: str | None = None, name: str | None = None, props: dict | None = None,
                  keys: dict | None = None, start: float = 0.0, end: float | None = None,
                  enter: dict | None = None, exit: dict | None = None, visible: bool = True,
-                 locked: bool = False, parent: str | None = None, tracks: dict | None = None, **kwargs):
+                 locked: bool = False, parent: str | None = None, tracks: dict | None = None,
+                 scene: str | None = None, **kwargs):
         self.id = id or f"{self.TYPE}{next(_id_counter)}"
         self.name = name or self.LABEL
         self.parent: str | None = parent or None
+        self.scene: str | None = scene or None      # the scene it belongs to (its times are scene times)
         self.props: dict[str, Any] = {p.name: copy.deepcopy(p.default) for p in self.all_props()}
         self.keys: dict[str, list[dict]] = {}
         self.start = float(start or 0.0)
@@ -536,6 +538,8 @@ class SceneObject:
             d["parent"] = self.parent
         if self.tracks:
             d["tracks"] = copy.deepcopy(self.tracks)
+        if self.scene:
+            d["scene"] = self.scene
         return d
 
     @classmethod
@@ -547,7 +551,7 @@ class SceneObject:
         return klass(id=d.get("id"), name=d.get("name"), props=d.get("props"), keys=d.get("keys"),
                      start=d.get("start", 0.0), end=d.get("end"), enter=d.get("enter"), exit=d.get("exit"),
                      visible=d.get("visible", True), locked=d.get("locked", False), parent=d.get("parent"),
-                     tracks=d.get("tracks"))
+                     tracks=d.get("tracks"), scene=d.get("scene"))
 
     def copy(self, new_id: str | None = None) -> SceneObject:
         d = self.to_json()

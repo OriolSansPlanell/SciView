@@ -2,7 +2,11 @@
 import {
   S, on, emit, commit, objById, schemaOf, applyState, requestFrame, undo, redo, canUndo, canRedo,
   duration, fps, frameDt, setKey, valueAt, keyIndexAt, select, isGroup, watchExternal,
+  filmDuration, filmTime, sceneAt, scenes, currentScene, sceneStart, sceneOf,
 } from './state.js';
+import { renderScenes, switchScene } from './scenes.js';
+import { toggleRecording } from './sound.js';
+import { initAssistant } from './assistant.js';
 import {
   groupSelection, ungroup, removeSelected, duplicateSelected, copySelection, cutSelection, pasteText, lastCopied,
 } from './actions.js';
@@ -56,7 +60,6 @@ $('btnIssues').addEventListener('click', () => issuesDialog());
 
 // ------------------------------------------------------------------ time and playback
 const audio = $('audio');
-let lastAudio = '';
 
 function setTime(t, { fromPlayback = false } = {}) {
   const f = fps();
@@ -67,17 +70,33 @@ function setTime(t, { fromPlayback = false } = {}) {
   if (!fromPlayback && S.playing) syncAudio(true);
 }
 
+/** Go to a film time: switches to the scene showing then (the incoming one during a transition). */
+function setFilmTime(t, opts = {}) {
+  const at = sceneAt(clamp(t, 0, filmDuration()));
+  if (at.scene.id !== S.scene) switchScene(at.scene.id, { keepSelection: opts.fromPlayback });
+  setTime(at.t, opts);
+}
+
+// The preview plays the film's whole sound (soundtrack and voice clips) mixed by the server.
+const hasSound = () => !!S.project.settings.audio || S.project.objects.some((o) => o.type === 'voice' && o.props.audio);
+function soundKey() {
+  const st = S.project.settings;
+  const clips = S.project.objects.filter((o) => o.type === 'voice').map((o) => [o.props, o.start, o.end, o.scene,
+    o.visible, sceneStart(sceneOf(o))]);
+  return JSON.stringify([st.audio, st.audio_offset, st.audio_volume, clips, filmDuration()]);
+}
+let soundUrl = '';
 function syncAudio(seek) {
-  const src = S.project.settings.audio;
-  if (!src) { audio.pause(); return; }
-  const url = `/files/${src.split('/').map(encodeURIComponent).join('/')}`;
-  if (lastAudio !== url) { audio.src = url; lastAudio = url; }
-  audio.volume = clamp(Number(S.project.settings.audio_volume) || 1, 0, 1);
-  const at = S.time - (Number(S.project.settings.audio_offset) || 0);
-  if (seek || Math.abs(audio.currentTime - at) > 0.25) {
-    if (at >= 0) audio.currentTime = at;
-  }
-  if (S.playing && at >= 0) audio.play().catch(() => {});
+  if (!hasSound()) { audio.pause(); return; }
+  const key = soundKey();
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+  const url = `/api/mix?k=${(h >>> 0).toString(36)}`;
+  if (soundUrl !== url) { audio.src = url; soundUrl = url; }
+  audio.volume = 1;
+  const at = filmTime();
+  if (seek || Math.abs(audio.currentTime - at) > 0.25) audio.currentTime = at;
+  if (S.playing) audio.play().catch(() => {});
   else audio.pause();
 }
 
@@ -85,7 +104,7 @@ let rafId = null;
 let lastTs = 0;
 function play() {
   if (S.playing) return;
-  if (S.time >= duration() - frameDt() / 2) setTime(0);
+  if (filmTime() >= filmDuration() - frameDt() / 2) setFilmTime(0);
   S.playing = true;
   $('btnPlay').innerHTML = icon('pause');
   $('btnPlay').title = 'Pause (Space)';
@@ -95,13 +114,14 @@ function play() {
     if (!S.playing) return;
     const dt = (ts - lastTs) / 1000;
     lastTs = ts;
-    let t = S.time + dt;
-    if (t >= duration()) {
-      if (S.loop) { t = 0; syncAudio(true); } else { setTime(duration()); pause(); return; }
+    let t = filmTime() + dt;
+    if (t >= filmDuration()) {
+      if (S.loop) { t = 0; setFilmTime(0, { fromPlayback: true }); syncAudio(true); rafId = requestAnimationFrame(tick); return; }
+      setFilmTime(filmDuration()); pause(); return;
     }
-    setTime(t, { fromPlayback: true });
+    setFilmTime(t, { fromPlayback: true });
     ensurePlayheadVisible();
-    if (S.project.settings.audio) syncAudio(false);
+    if (hasSound()) syncAudio(false);
     rafId = requestAnimationFrame(tick);
   };
   rafId = requestAnimationFrame(tick);
@@ -117,7 +137,7 @@ function pause() {
 const togglePlay = () => (S.playing ? pause() : play());
 
 $('btnPlay').addEventListener('click', togglePlay);
-$('btnStart').addEventListener('click', () => setTime(0));
+$('btnStart').addEventListener('click', () => (S.time > 0 ? setTime(0) : setFilmTime(0)));
 $('btnEnd').addEventListener('click', () => setTime(duration()));
 $('btnPrev').addEventListener('click', () => setTime(S.time - frameDt()));
 $('btnNext').addEventListener('click', () => setTime(S.time + frameDt()));
@@ -131,8 +151,17 @@ $('timeInput').addEventListener('change', (e) => {
   if (Number.isFinite(v)) setTime(v); else e.target.value = fmtTime(S.time);
 });
 $('quality').addEventListener('change', (e) => { S.scale = Number(e.target.value); requestFrame(); });
+$('guides').addEventListener('change', (e) => { S.guides = e.target.value; drawOverlay(); });
+on('guides', () => { $('guides').value = S.guides; drawOverlay(); });
+const recordNarration = () => toggleRecording({ play, pause });
+$('btnRecord').addEventListener('click', recordNarration);
+on('recording', (onAir) => {
+  $('btnRecord').classList.toggle('on', onAir);
+  $('btnRecord').title = onAir ? 'Stop recording (R)' : 'Record narration from the playhead (R)';
+  toast(onAir ? 'Recording… speak while the film plays. Press R or the red button to stop.' : 'Recording stopped.');
+});
 $('btnSnap').addEventListener('click', () => {
-  const a = el('a', { href: `/api/still?t=${S.time.toFixed(4)}&scale=1`, download: '' });
+  const a = el('a', { href: `/api/still?t=${filmTime().toFixed(4)}&scale=1`, download: '' });
   document.body.append(a);
   a.click();
   a.remove();
@@ -141,6 +170,15 @@ $('btnSnap').addEventListener('click', () => {
 
 // ------------------------------------------------------------------ events between panels
 on('seek', (t) => setTime(t));
+on('seekFilm', (t) => setFilmTime(t));
+on('scene', () => {
+  $('durLabel').textContent = fmtTime(duration());
+  renderScenes();
+  renderTimeline();
+  renderInspector();
+  drawOverlay();
+  if (S.time > duration()) setTime(duration());
+});
 let lastSelection = '';
 on('selection', () => {
   const key = `${S.selected}|${S.selection.join(',')}`;
@@ -155,7 +193,9 @@ on('project', (opts = {}) => {
   renderTimeline();
   if (opts.source !== 'inspector') renderInspector();
   else refreshInspector();
-  if (opts.settings) { layoutViewport(); $('durLabel').textContent = fmtTime(duration()); }
+  if (opts.settings) layoutViewport();
+  $('durLabel').textContent = fmtTime(duration());
+  renderScenes();
   if (S.time > duration()) setTime(duration());
 });
 on('dirty', updateTitle);
@@ -165,6 +205,7 @@ on('issues', updateIssues);
 on('warnings', updateIssues);
 on('loaded', () => {
   $('durLabel').textContent = fmtTime(duration());
+  renderScenes();
   renderLibrary($('libSearch').value);
   renderInspector();
   layoutViewport();
@@ -221,7 +262,7 @@ document.addEventListener('keydown', (e) => {
   if (mod && key === 'a') {
     e.preventDefault();
     select(null);
-    for (const o of [...S.project.objects].reverse()) if (!o.parent || !objById(o.parent)) select(o.id, 'add');
+    for (const o of [...S.project.objects].reverse()) if (o.scene === S.scene && (!o.parent || !objById(o.parent))) select(o.id, 'add');
     return;
   }
   switch (e.key) {
@@ -230,6 +271,12 @@ document.addEventListener('keydown', (e) => {
     case 'ArrowRight': e.preventDefault(); setTime(S.time + (e.shiftKey ? 1 : frameDt())); break;
     case 'Home': setTime(0); break;
     case 'End': setTime(duration()); break;
+    case 'PageUp': case 'PageDown': {
+      const list = scenes();
+      const i = list.indexOf(currentScene()) + (e.key === 'PageDown' ? 1 : -1);
+      if (i >= 0 && i < list.length) { switchScene(list[i].id); setTime(0); }
+      break;
+    }
     case 'Escape': {
       // first leave the group the selection is in, then clear it
       const o = objById(S.selected);
@@ -242,6 +289,7 @@ document.addEventListener('keydown', (e) => {
       if (!deleteSelectedKey()) removeSelected();
       break;
     case 'k': case 'K': keyAll(); break;
+    case 'r': case 'R': if (!mod) recordNarration(); break;
     case '?': helpDialog(); break;
     default: break;
   }
@@ -331,6 +379,7 @@ async function start() {
   }
   emit('loaded');
   watchExternal();
+  initAssistant();
   if (S.recovery) recoveryDialog();
   else if (S.untitled && S.project.objects.length === 0) newFilmDialog({ first: true });
 }

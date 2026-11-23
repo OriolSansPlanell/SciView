@@ -545,6 +545,33 @@ class Canvas:
         The canvas is consumed: its buffers are modified in place.
         """
         out = self.rgb
+        self._add_bloom(out, bloom)
+        if vignette > 0:
+            vm3, vadd = _vignette_terms(self.w, self.h, vignette, tuple(float(c) for c in vignette_color))
+            cv2.multiply(out, vm3, dst=out)
+            cv2.add(out, vadd, dst=out)
+        _shoulder(out)
+        return cv2.convertScaleAbs(out, alpha=255.0)
+
+    def finish_rgba(self, bloom: float = 0.6) -> np.ndarray:
+        """Like :meth:`finish` for a canvas drawn without background (``layer=True``): uint8 RGBA with
+        straight alpha. Coverage gives the alpha; glow adds light and as much opacity as it is bright."""
+        if not self.layer:
+            raise ValueError("finish_rgba needs a canvas made with layer=True")
+        P = self.rgb
+        A = 1.0 - self.trans
+        glow_alpha = np.zeros_like(A)
+        self._add_bloom(P, bloom, glow_alpha)
+        A = 1.0 - (1.0 - A) * (1.0 - np.clip(glow_alpha, 0.0, 1.0))
+        _shoulder(P)
+        a = np.maximum(A, 1e-6)[..., None]
+        rgb = np.where(A[..., None] > 1e-4, np.clip(P / a, 0.0, 1.0), 0.0)
+        out = np.empty((self.h, self.w, 4), np.uint8)
+        out[..., :3] = cv2.convertScaleAbs(rgb.astype(np.float32), alpha=255.0)
+        out[..., 3] = cv2.convertScaleAbs(np.clip(A, 0, 1).astype(np.float32), alpha=255.0)
+        return out
+
+    def _add_bloom(self, out: np.ndarray, bloom: float, glow_alpha: np.ndarray | None = None) -> None:
         if bloom > 0 and self._emit_used and self._ebox is not None:
             s = self.s
             margin = int(math.ceil(3 * 40.0 * s)) + 16          # 3 sigma of the widest blur
@@ -570,18 +597,18 @@ class Canvas:
             glow_half = cv2.addWeighted(g1, 0.9, cv2.resize(wide, (w2, h2), interpolation=cv2.INTER_LINEAR), 1.0, 0.0)
             glow = cv2.resize(glow_half, (w, h), interpolation=cv2.INTER_LINEAR)
             region = out[Y0:fy1, X0:fx1]
-            region += glow[:fy1 - Y0, :fx1 - X0] * float(bloom)
-        if vignette > 0:
-            vm3, vadd = _vignette_terms(self.w, self.h, vignette, tuple(float(c) for c in vignette_color))
-            cv2.multiply(out, vm3, dst=out)
-            cv2.add(out, vadd, dst=out)
-        # soft shoulder above 0.85 instead of a hard clip
-        knee = 0.85
-        if float(out.max()) > knee:
-            over = out > knee
-            v = out[over]
-            out[over] = knee + (1 - knee) * (1 - np.exp(-(v - knee) / (1 - knee)))
-        return cv2.convertScaleAbs(out, alpha=255.0)
+            g = glow[:fy1 - Y0, :fx1 - X0] * float(bloom)
+            region += g
+            if glow_alpha is not None:
+                glow_alpha[Y0:fy1, X0:fx1] = np.maximum(glow_alpha[Y0:fy1, X0:fx1], g.max(axis=2))
+
+
+def _shoulder(out: np.ndarray, knee: float = 0.85) -> None:
+    """Soft shoulder above ``knee`` instead of a hard clip (in place)."""
+    if float(out.max()) > knee:
+        over = out > knee
+        v = out[over]
+        out[over] = knee + (1 - knee) * (1 - np.exp(-(v - knee) / (1 - knee)))
 
 
 @dataclass

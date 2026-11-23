@@ -169,6 +169,29 @@ class RenderContext:
         img = self.text_image(text, size * scale, weight, align, line_spacing, max_width * scale, family)
         if img.width <= 0:
             return None
+        left, top, w_in, h_in = self._place(img, x, y, align, valign)
+        pad = img.pad
+        if background is not None and background_alpha > 0:
+            from ..engine.surface import rounded_rect
+            bp = background_pad * self.s
+            rr = rounded_rect(left - bp, top - bp * 0.6, w_in + 2 * bp, h_in + 1.2 * bp, (h_in + 1.2 * bp) / 2)
+            cv.polygon(rr, fill=background, fill_alpha=background_alpha * opacity)
+        cv.blit(img.mask, left - pad, top - pad, color=color, alpha=opacity, glow=glow)
+        return (left, top, left + w_in, top + h_in)
+
+    def text_bounds(self, text: str, x: float, y: float, size: float, *, align: str = "left", valign: str = "top",
+                    weight: str = "regular", line_spacing: float = 1.25, max_width: float = 0.0,
+                    scale: float = 1.0, family: str | None = None):
+        """Where :meth:`draw_text` would put the text (bbox in output px), without drawing it."""
+        if not text:
+            return None
+        img = self.text_image(text, size * scale, weight, align, line_spacing, max_width * scale, family)
+        if img.width <= 0:
+            return None
+        left, top, w_in, h_in = self._place(img, x, y, align, valign)
+        return (left, top, left + w_in, top + h_in)
+
+    def _place(self, img, x: float, y: float, align: str, valign: str):
         X, Y = x * self.s, y * self.s
         pad = img.pad
         w_in, h_in = img.width - 2 * pad, img.height - 2 * pad
@@ -186,13 +209,7 @@ class RenderContext:
             top = Y - (img.baseline - pad)
         else:
             top = Y
-        if background is not None and background_alpha > 0:
-            from ..engine.surface import rounded_rect
-            bp = background_pad * self.s
-            rr = rounded_rect(left - bp, top - bp * 0.6, w_in + 2 * bp, h_in + 1.2 * bp, (h_in + 1.2 * bp) / 2)
-            cv.polygon(rr, fill=background, fill_alpha=background_alpha * opacity)
-        cv.blit(img.mask, left - pad, top - pad, color=color, alpha=opacity, glow=glow)
-        return (left, top, left + w_in, top + h_in)
+        return left, top, w_in, h_in
 
     # ------------------------------------------------------------------ charts
     def axes(self, ref: str) -> AxesTransform | None:

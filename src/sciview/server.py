@@ -114,6 +114,8 @@ class EditorSession:
         self.cache: OrderedDict = OrderedDict()
         self.thumbs: dict[str, bytes] = {}
         self.export_state: dict = {"state": "idle"}
+        self.mix_cache: dict = {}
+        self.runs: dict = {}                       # assistant requests by id
         self.export_cancel = threading.Event()
         self.export_thread: threading.Thread | None = None
         # prefetch: frames ahead of the playhead, rendered while the editor is idle
@@ -260,7 +262,7 @@ class EditorSession:
         return self.rev
 
     def state(self) -> dict:
-        from .export import FORMATS, find_ffmpeg
+        from .export import FORMATS, TARGETS, find_ffmpeg
         try:
             find_ffmpeg()
             ff = True
@@ -270,7 +272,10 @@ class EditorSession:
                 "base_dir": str(self.project.base_dir), "saved": self.rev == self.saved_rev,
                 "untitled": self.untitled,
                 "assets": self.assets(), "schema": all_schemas(), "templates": list_templates(),
-                "version": __version__, "ffmpeg": ff, "formats": FORMATS, "rev": self.rev,
+                "version": __version__, "ffmpeg": ff, "rev": self.rev,
+                "formats": {**FORMATS, "html": "Web page - the video with captions, chapters and the project",
+                            "pptx": "PowerPoint - one slide per scene with its clip"},
+                "targets": {k: {kk: vv for kk, vv in v.items()} for k, v in TARGETS.items()},
                 "issues": self.project.validate(), "problems": self.project.problems(),
                 "recovery": self.recovery}
 
@@ -315,20 +320,106 @@ class EditorSession:
                     self.cache.popitem(last=False)
         return out
 
+    # ------------------------------------------------------------------ sound and transforms
+    def mix_wav(self) -> bytes:
+        """The film's whole sound as WAV for the preview (cached until a clip or the scenes change)."""
+        from . import audio
+        proj = self.project
+        clips = audio.clips(proj)
+        key = json.dumps([[str(c["path"]), c["at"], c["trim"], c["length"], c["volume"], c["fade_in"], c["fade_out"],
+                           c["path"].stat().st_mtime_ns if c["path"].exists() else 0] for c in clips]
+                         + [round(proj.duration, 3)], default=str)
+        hit = self.mix_cache.get(key)
+        if hit is None:
+            pcm = audio.mix(proj, 0.0, proj.duration, rate=44100)
+            hit = audio.wav_bytes(pcm, 44100)
+            self.mix_cache = {key: hit}
+        return hit
+
+    def transform(self, body: dict) -> dict:
+        """Work out a change on a copy of the editor's film and send the new film back (one undo step there)."""
+        from . import narration
+        op = body.get("op")
+        proj = Project.from_json(body.get("project") or self.project.to_json(), self.project.path)
+        before = {o.id for o in proj.objects}
+        out: dict = {}
+        if op == "apply_theme":
+            from . import theme
+            name = body.get("theme")
+            src = name
+            if isinstance(name, str) and name not in theme.builtin():
+                f = self._safe_path(name)
+                if f is None:
+                    raise ValueError("the theme file must be inside the project folder")
+                src = f
+            out["notes"] = theme.apply(proj, src, bool(body.get("restyle", True)))
+        elif op == "script_captions":
+            sc = proj.get_scene(body.get("scene")) if body.get("scene") else proj.current_scene
+            narration.captions_from_script(proj, body.get("text", ""), sc, body.get("voice") or None,
+                                           float(body.get("start", 0.0)), **(body.get("props") or {}))
+        elif op == "read_aloud":
+            ids = body.get("ids") or []
+            caps = [proj.find(i) for i in ids] if ids else None
+            narration.read_aloud(proj, [c for c in caps if c is not None] if caps else None)
+        else:
+            raise ValueError(f"unknown change {op!r}")
+        out["project"] = proj.to_json()
+        out["added"] = len({o.id for o in proj.objects} - before)
+        return out
+
+    # ------------------------------------------------------------------ assistant panel
+    def start_assistant(self, body: dict) -> dict:
+        from .agent.assistant import Run
+        if any(r.status == "running" for r in self.runs.values()):
+            raise ValueError("the assistant is still working on the last request")
+        if body.get("project"):
+            self.set_project(Project.from_json(body["project"], self.project.path))
+        prompt = str(body.get("prompt") or "").strip()
+        if not prompt:
+            raise ValueError("ask the assistant something")
+        proj = self.project.copy()
+        if body.get("scene"):
+            try:
+                proj.current_scene = body["scene"]          # new objects go into the scene in view
+            except KeyError:
+                pass
+
+        def apply(p, note):
+            self.set_project(p.copy(), external_note=note)
+
+        run = Run(proj, prompt, body.get("history"), body.get("scope"), apply=apply,
+                  client=getattr(self, "assistant_client", None))
+        self.runs = {k: v for k, v in self.runs.items() if v.status == "running"}
+        self.runs[run.id] = run
+        run.start()
+        return {"id": run.id, "rev": self.rev}
+
+    def _safe_path(self, rel: str) -> Path | None:
+        base = self.project.base_dir.resolve()
+        p = (base / rel).resolve()
+        return p if (p == base or base in p.parents) and p.is_file() else None
+
     # ------------------------------------------------------------------ export
     def start_export(self, opts: dict) -> dict:
-        from .export import Cancelled, detect_format, export
+        from .export import TARGETS, Cancelled, detect_format, export
         if self.export_thread and self.export_thread.is_alive():
             raise ValueError("an export is already running")
-        fmt = opts.get("format", "mp4")
+        target = opts.get("target") or None
+        if target and target not in TARGETS:
+            raise ValueError(f"unknown preset {target!r}")
+        fmt = opts.get("format") or (TARGETS[target]["ext"] if target else "mp4")
         stem = "film" if self.untitled else self.path.name.split(".")[0]
-        name = (opts.get("filename") or "").strip() or (stem + (f".{fmt}" if fmt != "png" else "_frames"))
+        default = stem + ("_frames" if fmt == "png" and not (target and TARGETS[target].get("still"))
+                          else (f"_{target}" if target else "") + f".{fmt}")
+        name = (opts.get("filename") or "").strip() or default
         out = Path(name)
         if not out.is_absolute():
             out = self.project.base_dir / out
-        if fmt != "png" and out.suffix.lower() != f".{fmt}":
+        still = bool(target and TARGETS[target].get("still"))
+        if (fmt != "png" or still) and out.suffix.lower() != f".{fmt}":
             out = out.with_suffix(f".{fmt}")
-        detect_format(out)
+        if fmt not in ("html", "pptx") and not still:
+            detect_format(out)
         proj = self.project.copy()
         self.export_cancel.clear()
         self.export_state = {"state": "running", "done": 0, "total": 0, "eta": None, "output": str(out),
@@ -339,10 +430,16 @@ class EditorSession:
 
         def run():
             try:
-                export(proj, out, scale=float(opts.get("scale", 1.0)), crf=int(opts.get("crf", 18)),
+                subs = opts.get("subtitles", False)
+                export(proj, out, scale=float(opts["scale"]) if opts.get("scale") else None,
+                       crf=int(opts["crf"]) if opts.get("crf") else None,
                        fps=float(opts["fps"]) if opts.get("fps") else None,
                        workers=int(opts["workers"]) if opts.get("workers") else None,
-                       subtitles=bool(opts.get("subtitles", False)), progress=progress, cancel=self.export_cancel)
+                       subtitles=subs if isinstance(subs, str) else bool(subs),
+                       transparent=bool(opts.get("transparent")), target=target,
+                       chapters=bool(opts.get("chapters", True)),
+                       time=float(opts["time"]) if opts.get("time") is not None else None,
+                       progress=progress, cancel=self.export_cancel)
                 size = out.stat().st_size if out.is_file() else None
                 self.export_state.update(state="done", finished=time.time(), size=size)
             except Cancelled:
@@ -445,6 +542,18 @@ class Handler(BaseHTTPRequestHandler):
                                    "base_dir": str(s.project.base_dir)})
             if path == "/api/changes":
                 return self._json({"rev": s.rev, "external_rev": s.external_rev, "note": s.external_note})
+            if path == "/api/frame" and q.get("scene"):
+                t = float(q.get("t", 0))
+                scale = min(2.0, max(0.1, float(q.get("scale", 0.5))))
+                info = FrameInfo()
+                with s.render_lock:
+                    img = s.renderer.frame(t, scale, info, scene=q["scene"])
+                buf = io.BytesIO()
+                Image.fromarray(img).save(buf, "JPEG", quality=88)
+                meta = {"boxes": info.boxes, "warnings": info.warnings, "issues": info.issues, "ms": round(info.ms, 1),
+                        "rev": s.rev, "t": t}
+                return self._send(200, buf.getvalue(), "image/jpeg",
+                                  {"X-Frame-Info": base64.b64encode(json.dumps(meta).encode()).decode()})
             if path == "/api/frame":
                 t = float(q.get("t", 0))
                 scale = min(2.0, max(0.1, float(q.get("scale", 0.5))))
@@ -490,6 +599,62 @@ class Handler(BaseHTTPRequestHandler):
                 files = sorted(f.relative_to(root).as_posix() for f in root.glob("**/*.sciview.json")
                                if "node_modules" not in f.parts and len(f.relative_to(root).parts) <= 3)
                 return self._json({"base_dir": str(root), "files": files[:200]})
+            if path == "/api/waveform":
+                from . import audio
+                rel = q.get("path", "")
+                f = self._inside(s.project.base_dir, rel)
+                if f is None:
+                    return self._error("not found", 404)
+                trim = float(q.get("trim", 0) or 0)
+                length = float(q["length"]) if q.get("length") else None
+                w = audio.waveform(f, int(q.get("bins", 600)), trim, length)
+                w["segments"] = audio.speech_segments(f, trim=trim, length=length)
+                return self._json(w)
+            if path == "/api/mix":
+                return self._send(200, s.mix_wav(), "audio/wav", {"Cache-Control": "no-store"})
+            if path == "/api/themes":
+                from . import theme
+                items = [{"name": k, "label": d.get("name", k), "description": d.get("description", ""),
+                          "palette": d.get("palette", {}), "settings": d.get("settings", {})}
+                         for k, d in theme.builtin().items()]
+                return self._json({"themes": items, "current": s.project.settings.get("theme", "")})
+            if path == "/api/theme.json":
+                from . import theme
+                d = theme.from_project(s.project, q.get("name", ""))
+                d = theme.embed_files(s.project, d)
+                name = (q.get("name") or "theme").strip().replace(" ", "-").lower()
+                return self._send(200, json.dumps(d, indent=2).encode(), "application/json",
+                                  {"Content-Disposition": f'attachment; filename="{name}.sciview-theme.json"'})
+            if path == "/api/tts":
+                from . import narration
+                eng = narration.engines()
+                return self._json({"engines": eng, "hint": "" if eng else
+                                   "No text-to-speech engine here: pip install pyttsx3, or install espeak-ng on Linux."})
+            if path == "/api/checks":
+                from . import checks
+                with s.render_lock:
+                    proj = s.project.copy()
+                    found = checks.layout_issues(proj) + checks.contrast_issues(proj)
+                return self._json({"issues": found})
+            if path == "/api/assistant":
+                run = s.runs.get(q.get("id", ""))
+                if run is None:
+                    return self._error("no such request", 404)
+                return self._json({"status": run.status, "events": run.since(int(q.get("since", 0))),
+                                   "rev": s.rev, "changed": run.changed})
+            if path == "/api/assistant/config":
+                from .agent import assistant
+                return self._json({"config": assistant.public_config(assistant.load_config()),
+                                   "presets": assistant.PRESETS})
+            if path == "/api/assistant/models":
+                from .agent import assistant
+                cfg = assistant.load_config()
+                if q.get("base_url"):
+                    cfg["base_url"] = q["base_url"]
+                try:
+                    return self._json({"models": assistant.ChatClient(cfg).models()})
+                except assistant.AssistantError as exc:
+                    return self._json({"models": [], "error": str(exc)})
             if path == "/api/captions.srt":
                 return self._send(200, s.project.captions_srt().encode(), "text/plain; charset=utf-8",
                                   {"Content-Disposition": 'attachment; filename="captions.srt"'})
@@ -611,6 +776,18 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                 return self._json(info)
+            if path == "/api/transform":
+                return self._json(s.transform(self._body_json()))
+            if path == "/api/assistant":
+                return self._json(s.start_assistant(self._body_json()))
+            if path == "/api/assistant/stop":
+                run = s.runs.get(self._body_json().get("id", ""))
+                if run is not None:
+                    run.stop.set()
+                return self._json({"ok": True})
+            if path == "/api/assistant/config":
+                from .agent import assistant
+                return self._json({"config": assistant.public_config(assistant.save_config(self._body_json()))})
             if path == "/api/export":
                 return self._json(s.start_export(self._body_json()))
             if path == "/api/export/cancel":

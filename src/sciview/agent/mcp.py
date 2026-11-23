@@ -14,6 +14,7 @@ import base64
 import json
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import IO
@@ -27,9 +28,12 @@ PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 INSTRUCTIONS = """You are building a scientific explainer video in SciView.
 Start with describe_film, and get_schema for any type before you use it. Times are seconds.
 2D objects use pixels on the frame ((0, 0) is the top-left); 3D objects use scene units, z up.
-Prefer place() and the user's own numbers and expressions; never invent scientific values: ask, or
-use clearly marked placeholders. Locked objects and anything outside your scope are off limits.
-After changing something, look at it with render_frame and fix what overlaps or leaves the frame."""
+A film can have several scenes (describe_film lists them); object times count from the start of their
+scene, and add_scene starts a new part, from a template if one fits.
+Prefer place() and align() and the user's own numbers and expressions; never invent scientific values:
+ask, or use clearly marked placeholders. Locked objects and anything outside your scope are off limits.
+After changing something, look at it with render_frame or check_frames and fix what overlaps or leaves
+the frame."""
 
 
 class FileBackend:
@@ -53,7 +57,8 @@ class EditorBackend:
 
     def __init__(self, url: str, scope: dict | None = None):
         self.url = url.rstrip("/")
-        self.tools = FilmTools(Project(), scope)
+        self.tools = FilmTools(Project())
+        self.tools.scope = dict(scope or {})          # checked against the editor's film when it is loaded
 
     def _req(self, method: str, path: str, body: dict | None = None):
         data = None if body is None else json.dumps(body).encode()
@@ -73,13 +78,21 @@ class EditorBackend:
             raise ToolError(f"the editor answered {code}")
         st = json.loads(raw)
         self.tools.project = Project.from_json(st["project"], st.get("path"))
+        if self.tools.scope.get("scene"):
+            try:
+                self.tools.project.current_scene = self.tools.scope["scene"]
+            except KeyError:
+                raise ToolError(f"the scene in your scope no longer exists: {self.tools.scope['scene']!r}") from None
+            self.tools.scope["scene"] = self.tools.project.current_scene.id
         return int(st["rev"])
 
     def call(self, name: str, args: dict) -> dict:
         if name == "render_frame":
             t = float(args.get("time", 0))
             scale = float(args.get("scale", 0.5))
-            code, ctype, raw = self._req("GET", f"/api/frame?t={t:.4f}&scale={min(max(scale, 0.1), 1.0)}")
+            scene = args.get("scene")
+            extra = f"&scene={urllib.parse.quote(str(scene))}" if scene else ""
+            code, ctype, raw = self._req("GET", f"/api/frame?t={t:.4f}&scale={min(max(scale, 0.1), 1.0)}{extra}")
             if code != 200:
                 raise ToolError(f"the editor could not render: {raw[:200]!r}")
             return {"jpeg": raw}
@@ -103,7 +116,8 @@ class EditorBackend:
 def describe_change(name: str, args: dict) -> str:
     what = {"add_object": "added a {type}", "set_property": "set {name} of {id}", "add_keyframe": "animated {name} of {id}",
             "remove_keyframe": "removed a keyframe of {id}", "set_timing": "changed the timing of {id}",
-            "delete": "deleted {id}", "group": "grouped objects", "place": "moved {id}"}.get(name, name)
+            "delete": "deleted {id}", "group": "grouped objects", "place": "moved {id}", "align": "lined up objects",
+            "add_scene": "added the scene {name}", "set_scene": "changed the scene {scene}"}.get(name, name)
     try:
         return "Assistant " + what.format(**{k: v for k, v in args.items() if isinstance(v, (str, int, float))})
     except (KeyError, IndexError):

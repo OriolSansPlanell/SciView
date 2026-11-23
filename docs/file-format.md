@@ -71,6 +71,58 @@ the object appeared)`, so either property can drive it.
 A **Matplotlib figure** stores only the name of the Python function that draws it (`"callback"`), never code,
 and a `snapshot` picture used when that function is not available.
 
+### Scenes
+
+A film with more than one scene lists them under `"scenes"`, in order, and every object says which scene it
+belongs to:
+
+```json
+{
+  "sciview": "1.0",
+  "settings": { "duration": 19.0, "...": "..." },
+  "camera": { "props": { "azimuth": -130 } },
+  "scenes": [
+    { "id": "scene1", "name": "Question", "duration": 6 },
+    { "id": "scene2", "name": "Method", "duration": 8, "transition": "crossfade", "transition_duration": 1.0,
+      "notes": "Explain the beamline",
+      "camera": { "props": { "azimuth": -130 }, "keys": { "azimuth": [ { "t": 8, "v": -100 } ] } } },
+    { "id": "scene3", "name": "Result", "duration": 7, "transition": "wipe_left", "chapter": true }
+  ],
+  "objects": [
+    { "id": "title1", "type": "title", "scene": "scene1", "props": { "text": "Why neutrons see water" } },
+    { "id": "box1", "type": "box", "scene": "scene2", "start": 0.5 }
+  ]
+}
+```
+
+* A scene has an `id`, a `name`, a `duration` in seconds, the `transition` into it (`cut`, `crossfade`, `dip`,
+  `wipe_left`, `wipe_right`, `wipe_up`, `wipe_down`, `push_left`, `push_right`, `push_up`, `push_down`,
+  `zoom`) with its `transition_duration`, `chapter` (default `true`) and `notes`. Defaults are left out.
+* The first scene's camera is the top-level `camera`; later scenes carry their own `camera`.
+* Objects' `start`, `end` and keyframe times count from the start of their scene.
+* `settings.duration` is written as the length of the whole film (scenes minus the transition overlaps), for
+  programs that do not know about scenes.
+* A film with a single scene has no `"scenes"` list and no `"scene"` on its objects, exactly as in 0.3.
+  An object whose scene does not exist is put in the first scene with a warning.
+
+### Styles
+
+`"styles"` holds the look a theme gives to new objects, per type:
+
+```json
+"styles": { "caption": { "style": "box", "size": 34 }, "title": { "color": "gold" } }
+```
+
+`settings` also has `theme` (the name of the theme last applied), the logo (`logo`, `logo_position`,
+`logo_size`, `logo_margin`, `logo_opacity`, `logo_scenes`) and `crop_x`, the centre of square and vertical
+exports (`-1` = the middle).
+
+A theme file (`.sciview-theme.json`) holds `"sciview_theme": 1`, a `name` and `description`, a `palette`,
+the `settings` it changes (background, font, glow ...), `styles` and an optional `logo` with its image as a
+path next to the theme file or as a `data:` URI.
+
+### Groups
+
 A group in the list:
 
 ```json
@@ -85,6 +137,10 @@ unknown `group` type and fall back to smooth easing.
 
 Files from SciView 0.2 open unchanged in 0.3. Files using the new object types, data tracks or file patterns
 open in 0.2 with warnings about what it does not know.
+
+Files from SciView 0.3 open unchanged in 0.4, and films with one scene are saved in the 0.3 form. In 0.3, a
+0.4 file opens with notes about the settings and object types it does not know (logo, theme, voice clips);
+the objects of later scenes all start from 0 s there, because 0.3 does not shift them by their scene.
 
 Values: numbers, booleans, strings; colours as `"#rrggbb"` or a palette name; vectors as lists; `array`
 properties as lists of numbers or as text (`"1, 2, 3"`).

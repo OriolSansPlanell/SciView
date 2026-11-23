@@ -1,7 +1,6 @@
 // Preview: shows rendered frames, selection outlines, drag-to-move for 2D objects and camera orbit.
 import {
-  S, on, emit, commit, objById, schemaOf, valueAt, setValue, select, isSelected, ancestors,
-} from './state.js';
+  S, on, emit, commit, objById, schemaOf, valueAt, setValue, select, isSelected, ancestors, currentScene } from './state.js';
 import { movePlan, applyMove } from './actions.js';
 import { addObject } from './inspector.js';
 import { api } from './api.js';
@@ -49,6 +48,7 @@ export function drawOverlay() {
     g.strokeRect(b.x0 * k - p, b.y0 * k - p, (b.x1 - b.x0) * k + 2 * p, (b.y1 - b.y0) * k + 2 * p);
     g.restore();
   };
+  drawGuides(g, k, dpr);
   if (hover && !isSelected(hover)) {
     const b = S.boxes.find((x) => x.id === hover);
     if (b) box(b, 'rgba(226,232,243,.35)', [], 1);
@@ -73,6 +73,45 @@ export function drawOverlay() {
   }
 }
 
+/** Boxes of the current scene's objects (during a transition the frame also shows the other scene). */
+function sceneBoxes() {
+  const cur = currentScene().id;
+  return S.boxes.filter((b) => { const o = objById(b.id); return o && o.scene === cur; });
+}
+
+/** Safe areas: the part a square or vertical export keeps, and the title-safe margin. */
+function drawGuides(g, k, dpr) {
+  const mode = S.guides;
+  if (!mode || mode === 'none') return;
+  const W = Number(S.project.settings.width) || 1920, H = Number(S.project.settings.height) || 1080;
+  g.save();
+  g.lineWidth = dpr;
+  g.setLineDash([6 * dpr, 5 * dpr]);
+  g.strokeStyle = 'rgba(255, 207, 74, .85)';
+  g.fillStyle = 'rgba(3, 7, 14, .55)';
+  const shade = (x, y, w, h) => {
+    g.fillRect(0, 0, W * k, y * k);
+    g.fillRect(0, (y + h) * k, W * k, (H - y - h) * k);
+    g.fillRect(0, y * k, x * k, h * k);
+    g.fillRect((x + w) * k, y * k, (W - x - w) * k, h * k);
+    g.strokeRect(x * k, y * k, w * k, h * k);
+  };
+  if (mode === 'title') {
+    g.strokeRect(W * 0.05 * k, H * 0.05 * k, W * 0.9 * k, H * 0.9 * k);
+    g.strokeStyle = 'rgba(255, 207, 74, .45)';
+    g.strokeRect(W * 0.1 * k, H * 0.1 * k, W * 0.8 * k, H * 0.8 * k);
+  } else {
+    const [tw, th] = mode === 'square' ? [1, 1] : [9, 16];
+    let w = H * tw / th, h = H;
+    if (w > W) { w = W; h = W * th / tw; }
+    const cx0 = Number(S.project.settings.crop_x);
+    const cx = cx0 >= 0 ? cx0 : W / 2;
+    const x = Math.min(Math.max(cx - w / 2, 0), W - w);
+    shade(x, (H - h) / 2, w, h);
+  }
+  g.restore();
+}
+
 function designPoint(e) {
   const r = overlay.getBoundingClientRect();
   const k = designToCss();
@@ -82,7 +121,7 @@ function designPoint(e) {
 function hit(e) {
   const [x, y] = designPoint(e);
   // members, not their group boxes; prefer 2D (drawn on top), then the smallest box
-  const hits = S.boxes.filter((b) => !b.group && x >= b.x0 - 4 && x <= b.x1 + 4 && y >= b.y0 - 4 && y <= b.y1 + 4);
+  const hits = sceneBoxes().filter((b) => !b.group && x >= b.x0 - 4 && x <= b.x1 + 4 && y >= b.y0 - 4 && y <= b.y1 + 4);
   if (!hits.length) return null;
   const top2d = hits.filter((b) => { const o = objById(b.id); return o && !schemaOf(o).is3d; });
   const pool = top2d.length ? top2d : hits;
@@ -144,7 +183,7 @@ overlay.addEventListener('pointerdown', (e) => {
       const mx0 = Math.min(marquee.x0, marquee.x1), mx1 = Math.max(marquee.x0, marquee.x1);
       const my0 = Math.min(marquee.y0, marquee.y1), my1 = Math.max(marquee.y0, marquee.y1);
       marquee = null;
-      const picked = S.boxes.filter((b) => !b.group && b.x1 >= mx0 && b.x0 <= mx1 && b.y1 >= my0 && b.y0 <= my1)
+      const picked = sceneBoxes().filter((b) => !b.group && b.x1 >= mx0 && b.x0 <= mx1 && b.y1 >= my0 && b.y0 <= my1)
         .map((b) => target(b.id)).filter((x, i, arr) => arr.indexOf(x) === i);
       select(null);
       for (const pid of [...before, ...picked]) select(pid, 'add');
@@ -176,7 +215,7 @@ overlay.addEventListener('pointerdown', (e) => {
     return;
   }
   // empty space (or Alt): click clears the selection, drag orbits the camera (Shift: shift the view)
-  const cam = S.project.camera;
+  const cam = objById('camera');
   const az0 = valueAt(cam, 'azimuth', S.time), el0 = valueAt(cam, 'elevation', S.time);
   const off0 = [...valueAt(cam, 'offset', S.time)];
   const tag = `orbit-${Date.now()}`;
@@ -184,7 +223,7 @@ overlay.addEventListener('pointerdown', (e) => {
   overlay.className = 'grab';
   drag(e, (dx, dy, ev) => {
     commit(() => {
-      const c = S.project.camera;
+      const c = objById('camera');
       if (ev.shiftKey) {
         setValue(c, 'offset', [Math.round(off0[0] + dx / k), Math.round(off0[1] + dy / k)]);
       } else {
@@ -200,10 +239,10 @@ overlay.addEventListener('pointerdown', (e) => {
 
 overlay.addEventListener('wheel', (e) => {
   e.preventDefault();
-  const cam = S.project.camera;
+  const cam = objById('camera');
   const d = valueAt(cam, 'distance', S.time);
   const nd = Math.max(0.5, d * (e.deltaY > 0 ? 1.08 : 1 / 1.08));
-  commit(() => setValue(S.project.camera, 'distance', Math.round(nd * 10) / 10), { coalesce: 'wheel-zoom', source: 'viewport' });
+  commit(() => setValue(objById('camera'), 'distance', Math.round(nd * 10) / 10), { coalesce: 'wheel-zoom', source: 'viewport' });
 }, { passive: false });
 
 // ------------------------------------------------------------------ frames

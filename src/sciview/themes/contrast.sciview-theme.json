@@ -1,0 +1,18 @@
+{
+  "sciview_theme": 1,
+  "name": "High contrast",
+  "description": "Black, white and saturated colours with boxed captions, for projectors and for viewers who need strong contrast.",
+  "palette": {
+    "teal": "#00e5d4", "gold": "#ffd60a", "amber": "#ff9f1c", "blue": "#4cc9ff", "ice": "#bdf4ff",
+    "cream": "#ffffff", "red": "#ff5c5c", "violet": "#d29bff", "green": "#5cff7a", "white": "#ffffff",
+    "gray": "#c4c9d4", "navy": "#000000"
+  },
+  "settings": {
+    "background": "#000000", "background2": "#05070a", "background_style": "solid", "stars": 0.0,
+    "vignette": 0.0, "bloom": 0.35, "font": "Inter"
+  },
+  "styles": {
+    "caption": {"style": "box", "background_color": "#000000", "background_opacity": 0.85, "size": 34},
+    "title": {"title_color": "gold", "subtitle_color": "white"}
+  }
+}

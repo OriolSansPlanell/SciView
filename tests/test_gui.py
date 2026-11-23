@@ -21,7 +21,8 @@ STATE = "() => import('/gui/js/state.js').then(m => ({sel: m.S.selection, primar
 def browser():
     with playwright.sync_playwright() as pw:
         try:
-            b = pw.chromium.launch()
+            # a fake microphone, already allowed, for recording narration
+            b = pw.chromium.launch(args=["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"])
         except Exception as exc:  # browsers not installed
             pytest.skip(f"chromium not available: {exc}")
         yield b
@@ -521,3 +522,171 @@ def test_agent_changes_appear_live_and_undo_in_one_step(open_editor, tmp_path):
     agent.call("set_timing", {"id": oid, "start": 1.0})
     ed.settle(1800)
     assert ed.project.find(oid).start == 1.0
+
+
+# ------------------------------------------------------------------ 0.4: scenes, sound, presets, themes, assistant
+SCENE = "() => import('/gui/js/state.js').then(m => ({id: m.currentScene().id, time: m.S.time, " \
+        "film: m.filmTime(), n: m.S.project.scenes.length}))"
+
+
+def scenes_project(folder):
+    p = sv.Project(path=folder / "talk.sciview.json", duration=3)
+    p.add("title", name="Opening title", text="Question", enter="none")
+    s2 = p.add_scene("Answer", 2, transition="crossfade", transition_duration=0.5)
+    s2.add("caption", name="Answer caption", text="Because of hydrogen", enter="none")
+    p.save()
+    return p
+
+
+def test_scenes_strip_switching_inspector_and_undo(open_editor, tmp_path):
+    ed = open_editor(scenes_project(tmp_path))
+    page = ed.page
+    page.wait_for_selector(".scene-chip")
+    assert page.locator(".scene-chip").count() == 2
+    assert page.locator(".tl-label", has_text="Opening title").count() == 1
+    assert page.locator(".tl-label", has_text="Answer caption").count() == 0   # rows show the current scene only
+    page.locator(".scene-chip", has_text="Answer").click()
+    ed.wait_frame()
+    st = page.evaluate(SCENE)
+    assert st["id"] == "scene2" and st["film"] == pytest.approx(2.5 + st["time"])
+    assert page.locator(".tl-label", has_text="Answer caption").count() == 1
+    assert page.locator(".insp-title", has_text="Answer").count() == 1        # the scene's own inspector
+    dur = page.locator("input[aria-label='Scene length in seconds']")
+    dur.fill("4")
+    dur.press("Enter")
+    page.select_option("select[aria-label='Transition into this scene']", "wipe_left")
+    ed.settle(900)
+    sc = ed.project.scenes[1]
+    assert sc.duration == 4 and sc.transition == "wipe_left" and ed.project.duration == pytest.approx(6.5)
+    page.locator(".scene-add").click()
+    ed.settle(900)
+    assert page.locator(".scene-chip").count() == 3 and len(ed.project.scenes) == 3
+    assert page.evaluate(SCENE)["id"] == ed.project.scenes[2].id                 # the new scene is current
+    page.keyboard.press("Control+z")
+    ed.settle(900)
+    assert page.locator(".scene-chip").count() == 2 and len(ed.project.scenes) == 2
+    # playing crosses from one scene into the next
+    page.locator(".scene-chip", has_text="Scene 1").click()
+    ed.seek(2.2)
+    page.click("#btnPlay")
+    page.wait_for_function("() => import('/gui/js/state.js').then(m => m.currentScene().id === 'scene2')",
+                           timeout=8000)
+    page.click("#btnPlay")
+
+
+def test_export_presets_crop_and_guides(open_editor, tmp_path, has_ffmpeg):
+    import subprocess
+    p = scenes_project(tmp_path)
+    for sc in p.scenes:
+        sc.duration = 1
+    p.scenes[1].transition_duration = 0.2
+    p.save()
+    ed = open_editor(p)
+    page = ed.page
+    page.wait_for_selector(".scene-chip")
+    page.click("#btnExport")
+    page.locator(".preset", has_text="Vertical").click()
+    assert page.evaluate("() => import('/gui/js/state.js').then(m => m.S.guides)") == "vertical"
+    assert page.input_value("#guides") == "vertical"
+    size = page.locator("select[aria-label='Size']")
+    assert "1080 × 1920" in size.locator("option:checked").inner_text()
+    size.select_option("0.25")
+    page.locator(".modal .btn.primary", has_text="Export").click()
+    page.wait_for_selector(".export-status >> text=Exported", timeout=60000)
+    out = tmp_path / "talk_vertical.mp4"
+    v = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-show_chapters", "-of", "json",
+                                   str(out)], capture_output=True, text=True).stdout)
+    video = next(s for s in v["streams"] if s["codec_type"] == "video")
+    assert (video["width"], video["height"]) == (270, 480) and len(v["chapters"]) == 2
+    page.locator(".preset", has_text="Vertical").click()                         # off again: film sizes
+    assert "1920 × 1080" in size.locator("option:checked").inner_text()
+    page.keyboard.press("Escape")
+    ed.settle(300)
+    shot = ed.page.locator("#overlay").screenshot()
+    assert shot                                                                   # the guide is drawn over the frame
+
+
+def test_recording_narration_then_captions_from_the_script(open_editor, tmp_path, has_ffmpeg):
+    p = sv.Project(path=tmp_path / "rec.sciview.json", duration=6)
+    p.add("title", text="Narrated", enter="none")
+    p.save()
+    ed = open_editor(p)
+    page = ed.page
+    page.wait_for_selector(".tl-row")
+    page.click("#btnRecord")
+    page.wait_for_selector("#btnRecord.on", timeout=5000)
+    page.wait_for_timeout(2200)
+    page.click("#btnRecord")
+    page.wait_for_selector(".toast >> text=Recorded", timeout=15000)
+    ed.settle(900)
+    voice = next(o for o in ed.project.objects if o.TYPE == "voice")
+    assert voice.props["audio"].startswith("assets/narration-") and (tmp_path / voice.props["audio"]).exists()
+    assert 1.5 < voice.end - voice.start < 4
+    page.wait_for_selector("canvas.wave", timeout=10000)                           # the waveform on its row
+    page.locator(".insp-actions .btn", has_text="Captions from the script").click()
+    page.fill(".modal textarea.script", "First we look.\nThen we measure.")
+    page.locator(".modal .btn.primary", has_text="Add captions").click()
+    page.wait_for_selector(".modal", state="detached", timeout=5000)
+    ed.settle(1200)
+    caps = [o for o in ed.project.objects if o.TYPE == "caption"]
+    assert [c.props["text"] for c in caps] == ["First we look.", "Then we measure."]
+    assert caps[0].start >= voice.start - 1e-6 and caps[1].start > caps[0].start
+    assert ed.project.find(voice.id).props["script"] == "First we look.\nThen we measure."
+    page.locator("#overlay").click(position={"x": 5, "y": 5})
+    page.keyboard.press("Control+z")                                              # one step for the script
+    ed.settle(900)
+    assert not any(o.TYPE == "caption" for o in ed.project.objects)
+    assert not ed.project.find(voice.id).props.get("script")
+
+
+def test_theme_picker_restyles_and_undoes(open_editor, tmp_path):
+    p = sv.Project(path=tmp_path / "th.sciview.json", duration=3)
+    p.add("caption", text="Words", enter="none")
+    p.save()
+    ed = open_editor(p)
+    page = ed.page
+    page.wait_for_selector(".theme-btn")
+    page.locator(".theme-btn", has_text="High contrast").click()
+    page.wait_for_selector(".theme-btn.current >> text=High contrast", timeout=5000)
+    ed.settle(900)
+    assert ed.project.settings["theme"] == "High contrast" and ed.project.objects[0].props["style"] == "box"
+    page.keyboard.press("Control+z")
+    ed.settle(900)
+    assert ed.project.settings["theme"] != "High contrast"
+    assert ed.project.objects[0].props.get("style", "plain") == "plain"
+
+
+def test_assistant_panel_runs_a_request_as_one_undo_step(open_editor, tmp_path, monkeypatch):
+    from test_assistant import Script
+
+    from sciview.agent import assistant as A
+    monkeypatch.setenv("SCIVIEW_CONFIG_DIR", str(tmp_path / "cfg"))
+    A.save_config({"model": "scripted"})
+    p = scenes_project(tmp_path)
+    ed = open_editor(p)
+    ed.srv.session.assistant_client = Script([
+        [("add_object", {"type": "caption", "name": "Model caption", "props": {"text": "Neutrons see water"}})],
+        [("set_property", {"id": "caption2", "name": "size", "value": 40})],
+    ], final="Added a caption to this scene.")
+    page = ed.page
+    page.wait_for_selector(".scene-chip")
+    page.locator(".scene-chip", has_text="Answer").click()
+    ed.settle(400)
+    page.click("#btnAssistant")
+    page.wait_for_selector("#assistant:not([hidden]) .as-input textarea")
+    assert page.locator(".as-scope select option", has_text="Only Answer").count() == 1
+    page.fill(".as-input textarea", "Add a caption that says neutrons see water")
+    page.keyboard.press("Enter")
+    page.wait_for_selector(".as-msg.assistant >> text=Added a caption", timeout=15000)
+    page.wait_for_selector(".as-changes >> text=Model caption", timeout=5000)
+    ed.settle(800)
+    new = ed.project.find("caption2")
+    assert new is not None and new.scene == "scene2" and new.props["size"] == 40
+    assert page.locator(".tl-label", has_text="Model caption").count() == 1
+    page.locator("#overlay").click(position={"x": 5, "y": 5})
+    page.keyboard.press("Control+z")                                              # the whole request at once
+    ed.settle(900)
+    assert ed.project.find("caption2") is None
+    page.keyboard.press("Control+Shift+z")
+    ed.settle(900)
+    assert ed.project.find("caption2").props["size"] == 40

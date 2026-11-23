@@ -2,8 +2,10 @@
 import {
   S, on, emit, commit, objById, schemaOf, valueAt, isAnimated, keyIndexAt, setValue, setKey, removeKey,
   colorCss, duration, EASINGS, BEZIER_PRESETS, cubicBezier, uniqueId, select, isGroup, children, descendants,
-  issuesFor,
+  issuesFor, currentScene, syncDuration, sceneObjects, applyProjectJson,
 } from './state.js';
+import { renderSceneInspector } from './scenes.js';
+import { scriptDialog, readAloud } from './sound.js';
 import {
   groupSelection, ungroup, align, distribute, stagger, removeSelected, duplicateSelected, setParent, topSelected,
 } from './actions.js';
@@ -34,6 +36,7 @@ export function renderInspector() {
   const many = S.selection.filter((id) => id !== 'camera' && objById(id));
   const obj = objById(S.selected);
   if (many.length > 1) renderMulti(many.map(objById));
+  else if (S.selected === 'scene') renderSceneInspector(root);
   else if (!obj) renderFilm();
   else renderObject(obj);
   syncIssues();
@@ -85,7 +88,16 @@ function settingBinding(name) {
   return {
     animatable: false,
     get: () => S.project.settings[name],
-    set: (v) => commit((p) => { p.settings[name] = v; }, { coalesce: `settings.${name}`, source: 'inspector', settings: true }),
+    set: (v) => commit((p) => {
+      if (name === 'duration') {
+        // the film's length is its scenes' total: with one scene this is that scene's length
+        if (p.scenes.length === 1) p.scenes[0].duration = Math.max(0.1, Number(v) || 0.1);
+        else p.scenes[p.scenes.length - 1].duration = Math.max(0.1, p.scenes[p.scenes.length - 1].duration + Number(v) - p.settings.duration);
+        syncDuration();
+        return;
+      }
+      p.settings[name] = v;
+    }, { coalesce: `settings.${name}`, source: 'inspector', settings: true }),
     name,
   };
 }
@@ -123,6 +135,14 @@ function renderObject(obj) {
     root.append(group(g.name, body));
   }
 
+  if (obj.type === 'voice') {
+    root.append(el('div', { class: 'insp-actions' },
+      el('button', { class: 'btn', onclick: () => scriptDialog(objById(id)), title: 'Captions that follow the phrases of this recording' }, 'Captions from the script…')));
+  } else if (obj.type === 'caption') {
+    root.append(el('div', { class: 'insp-actions' },
+      el('button', { class: 'btn', onclick: () => readAloud(S.selection.filter((x) => objById(x)?.type === 'caption')), title: 'Make a voice clip from this caption with text-to-speech' }, 'Read aloud'),
+      el('button', { class: 'btn', onclick: () => scriptDialog(null), title: 'Paste a script: one caption per line' }, 'Captions from a script…')));
+  }
   const kf = keyframeList(obj);
   if (kf) root.append(group('Keyframes', kf));
   if (!isCam) root.append(group('Data tracks', trackList(obj)));
@@ -508,12 +528,15 @@ function renderFilm() {
   root.append(el('p', { class: 'insp-hint' }, S.project.objects.length
     ? 'Select an object in the preview or the timeline to edit it.'
     : 'Add objects from the list on the left, or start from a template with New.'));
-  if (S.problems.length) {
-    root.append(group('Problems', el('ul', { class: 'issue-list' }, S.problems.map((p) => {
+  const checkOut = el('div', { class: 'check-out' });
+  const checkBtn = el('button', { class: 'btn', title: 'Look at frames for text that is hard to read, text that overlaps, and objects outside the frame' }, 'Check readability and layout');
+  checkBtn.addEventListener('click', () => runChecks(checkBtn, checkOut));
+  root.append(group('Problems', el('div', { class: 'group-body' },
+    S.problems.length ? el('ul', { class: 'issue-list' }, S.problems.map((p) => {
       const o = p.id ? objById(p.id) : null;
-      return el('li', {}, o ? el('button', { class: 'link', onclick: () => select(o.id) }, o.name || o.id) : null, o ? ': ' : '', p.message);
-    }))));
-  }
+      return el('li', {}, o ? el('button', { class: 'link', onclick: () => goTo(o.id) }, o.name || o.id) : null, o ? ': ' : '', p.message);
+    })) : el('p', { class: 'muted' }, 'No missing files, broken links or bad expressions.'),
+    el('div', { class: 'insp-actions', style: { padding: '6px 0 0' } }, checkBtn), checkOut)));
   const groups = [];
   for (const p of S.settingsSchema) {
     let g = groups.find((x) => x.name === p.group);
@@ -523,11 +546,7 @@ function renderFilm() {
   for (const g of groups) {
     const body = el('div', { class: 'group-body' });
     for (const p of g.props) body.append(makeRow(p, settingBinding(p.name)));
-    if (g.name === 'Look') {
-      body.append(el('div', { class: 'insp-actions', style: { padding: '8px 0 0' } },
-        el('button', { class: 'btn', onclick: () => applyTheme('dark') }, 'Neon on navy'),
-        el('button', { class: 'btn', onclick: () => applyTheme('light') }, 'Light for papers')));
-    }
+    if (g.name === 'Look') body.prepend(themePicker());
     root.append(group(g.name, body));
   }
   // palette
@@ -543,16 +562,70 @@ function renderFilm() {
     el('a', { class: 'btn', href: '/api/captions.srt', download: 'captions.srt', title: 'Captions as a subtitle file' }, 'Download subtitles (.srt)')));
 }
 
-function applyTheme(kind) {
-  commit((p) => {
-    if (kind === 'light') {
-      p.palette = { ...S.lightPalette };
-      Object.assign(p.settings, { background: '#ffffff', background2: '#f4f6fa', background_style: 'vertical', stars: 0, vignette: 0, bloom: 0.15 });
-    } else {
-      p.palette = { ...S.defaultPalette };
-      Object.assign(p.settings, { background: '#03070e', background2: '#111a2c', background_style: 'radial', stars: 0.4, vignette: 0.35, bloom: 0.7 });
+/** Select an object, switching to its scene first. */
+function goTo(id) {
+  const o = objById(id);
+  if (o && o.scene && o.scene !== currentScene().id) {
+    import('./scenes.js').then((m) => { m.switchScene(o.scene); select(id); });
+  } else select(id);
+}
+
+async function runChecks(btn, out) {
+  btn.disabled = true;
+  btn.textContent = 'Looking at the frames…';
+  out.innerHTML = '';
+  try {
+    const r = await api.checks();
+    if (!r.issues.length) out.append(el('p', { class: 'muted' }, 'Text stands out from what is behind it, nothing overlaps and everything is inside the frame.'));
+    else {
+      out.append(el('ul', { class: 'issue-list' }, r.issues.map((p) => {
+        const o = p.id ? objById(p.id) : null;
+        return el('li', {}, o ? el('button', { class: 'link', onclick: () => goTo(o.id) }, o.name || o.id) : null, o ? ': ' : '',
+          p.message.replace(`${o ? o.name : ''}: `, '').replace(`${o ? o.name : ''} `, ''));
+      })));
     }
-  }, { source: 'theme' });
+  } catch (e) {
+    out.append(el('p', { class: 'muted' }, `The check failed: ${e.message}`));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Check readability and layout';
+  }
+}
+
+function themePicker() {
+  const wrap = el('div', { class: 'theme-picker' });
+  const restyle = el('input', { type: 'checkbox', checked: true, 'aria-label': 'Restyle existing objects' });
+  const apply = async (theme, label) => {
+    try {
+      const r = await api.transform('apply_theme', S.project, { theme, restyle: restyle.checked });
+      applyProjectJson(r.project, `Theme ${label}`);
+      toast(`Applied ${label}${r.notes && r.notes.length ? ` (${r.notes.join('; ')})` : ''}.`);
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  api.themes().then((r) => {
+    const row = el('div', { class: 'theme-row' });
+    for (const t of r.themes) {
+      const sw = el('span', { class: 'theme-swatch', 'aria-hidden': 'true' },
+        el('i', { style: { background: t.settings.background } }),
+        ['cream', 'gold', 'teal', 'blue'].map((k) => el('i', { style: { background: t.palette[k] } })));
+      row.append(el('button', { class: `theme-btn ${(S.project.settings.theme || r.current) === t.label ? 'current' : ''}`, title: t.description,
+        onclick: () => apply(t.name, t.label) }, sw, el('span', {}, t.label)));
+    }
+    wrap.prepend(row);
+  }).catch(() => {});
+  const load = el('button', { class: 'btn small', title: 'Apply a .sciview-theme.json (a group or institute brand kit)' }, 'Load theme…');
+  load.addEventListener('click', async () => {
+    const files = await pickFiles('theme');
+    if (!files.length) return;
+    try {
+      const info = await api.upload(files[0]);
+      await apply(info.path, files[0].name.split('.')[0]);
+    } catch (e) { toast(`Could not load the theme: ${e.message}`, 'err'); }
+  });
+  const save = el('a', { class: 'btn small', href: '/api/theme.json', download: '', title: 'Download this film’s look, logo included, to share with your group' }, 'Save as theme');
+  wrap.append(el('div', { class: 'theme-actions' }, load, save,
+    el('label', { class: 'check', title: 'Also give existing titles, captions … the theme’s styles' }, restyle, ' Restyle objects')));
+  return wrap;
 }
 
 // ------------------------------------------------------------------ rows and controls
@@ -833,7 +906,8 @@ export function commonPattern(paths) {
 export function pickFiles(accept, multiple = false) {
   const map = {
     image: '.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.npy', table: '.csv,.tsv,.txt,.dat,.npy,.npz', mesh: '.stl,.obj',
-    audio: '.wav,.mp3,.m4a,.aac,.ogg,.flac', volume: '.npy,.tif,.tiff,.h5,.hdf5,.nxs,.png', molecule: '.pdb,.xyz,.ent',
+    audio: '.wav,.mp3,.m4a,.aac,.ogg,.flac,.webm', volume: '.npy,.tif,.tiff,.h5,.hdf5,.nxs,.png', molecule: '.pdb,.xyz,.ent',
+    theme: '.json',
   };
   return new Promise((resolve) => {
     const fi = document.getElementById('fileInput');
@@ -894,14 +968,14 @@ export function addObject(type, extra = {}) {
   const id = uniqueId(type);
   const start = Math.round(Math.min(S.time, Math.max(0, duration() - 0.5)) * 10) / 10;
   const obj = {
-    id, type, name: sc.label, props: {}, keys: {}, start,
+    id, type, name: sc.label, props: { ...(S.project.styles[type] || {}) }, keys: {}, start, scene: currentScene().id,
     end: sc.default_duration ? Math.min(duration(), start + sc.default_duration) : null,
     enter: { effect: sc.default_enter, duration: 0.6 }, exit: { effect: sc.default_exit, duration: 0.6 },
   };
   // sensible links: series go into the most recent chart
   const axesProp = sc.props.find((p) => p.kind === 'ref' && p.ref === 'axes' && p.group === 'Axes');
   if (axesProp) {
-    const ax = [...S.project.objects].reverse().find((o) => o.type === 'axes');
+    const ax = [...sceneObjects()].reverse().find((o) => o.type === 'axes');
     if (ax) obj.props.axes = ax.id;
   }
   Object.assign(obj.props, extra);

@@ -1,8 +1,9 @@
 // Timeline: one row per object (top-most first), clips for visibility, gold diamonds for keyframes.
 import {
   S, on, emit, commit, objById, schemaOf, span, keyTimes, duration, fps, breakCoalesce, select, isSelected,
-  isGroup, children, descendants, issuesFor,
+  isGroup, children, descendants, issuesFor, sceneObjects, sceneCamera, currentScene,
 } from './state.js';
+import { snapPoints, waveformFor } from './sound.js';
 import { el, drag, clamp } from './ui.js';
 import { icon } from './icons.js';
 
@@ -17,16 +18,23 @@ let pps = 60;
 let fitted = false;
 let autoFit = true; // until the user zooms by hand
 
-const labelW = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--lib-w')) || 236;
+const labelW = () => parseFloat(getComputedStyle(document.getElementById('app')).getPropertyValue('--lib-w')) || 236;
 const xOf = (t) => PAD + t * pps;
-const catClass = { '3D scene': 'cat-3d', Text: 'cat-text', Charts: 'cat-charts', 'Shapes & media': 'cat-shapes' };
+const catClass = { '3D scene': 'cat-3d', Text: 'cat-text', Charts: 'cat-charts', 'Shapes & media': 'cat-shapes',
+  Imaging: 'cat-charts', Optics: 'cat-3d', Sound: 'cat-sound' };
 
-function snap(t, { toPlayhead = true } = {}) {
+function snap(t, { toPlayhead = true, speech = true } = {}) {
   const f = fps();
   let s = Math.round(t * f) / f;
   if (toPlayhead && Math.abs(s - S.time) * pps < 7) s = S.time;
   if (Math.abs(s) * pps < 6) s = 0;
   if (Math.abs(s - duration()) * pps < 6) s = duration();
+  // the beginnings and ends of phrases in the scene's voice clips
+  if (speech) {
+    let best = null;
+    for (const p of snapPoints()) if (Math.abs(p - t) * pps < 8 && (best == null || Math.abs(p - t) < Math.abs(best - t))) best = p;
+    if (best != null) s = Math.round(best * 100) / 100;
+  }
   return s;
 }
 
@@ -46,8 +54,9 @@ export function renderTimeline() {
   const width = PAD * 2 + duration() * pps;
   rowsEl.innerHTML = '';
   rowsEl.style.width = `${labelW() + width}px`;
-  rowsEl.append(makeRow(S.project.camera, width, 0));
-  const ids = new Set(S.project.objects.map((o) => o.id));
+  rowsEl.append(makeRow(sceneCamera(currentScene()), width, 0));
+  const objs = sceneObjects();
+  const ids = new Set(objs.map((o) => o.id));
   // top-level objects: no parent, or a parent that is not a usable group
   const isTop = (o) => !o.parent || !ids.has(o.parent) || !isGroup(objById(o.parent));
   const shown = new Set();
@@ -59,7 +68,7 @@ export function renderTimeline() {
       if (isGroup(o) && !S.collapsed.has(o.id)) addRows(children(o.id), depth + 1);
     }
   };
-  addRows(S.project.objects.filter(isTop), 0);
+  addRows(objs.filter(isTop), 0);
   // objects in groups that contain each other in a circle have no top: list them anyway
   const inCycle = (o) => {
     const seen = new Set([o.id]);
@@ -71,9 +80,13 @@ export function renderTimeline() {
     }
     return false;
   };
-  const left = S.project.objects.filter((o) => !shown.has(o.id) && inCycle(o));
+  const left = objs.filter((o) => !shown.has(o.id) && inCycle(o));
   if (left.length) addRows(left, 0);
-  if (!S.project.objects.length) rowsEl.append(el('div', { class: 'tl-empty' }, 'Objects you add appear here. Drag clips to change when they appear.'));
+  if (!objs.length) {
+    rowsEl.append(el('div', { class: 'tl-empty' }, S.project.scenes.length > 1
+      ? 'This scene is empty. Objects you add go into it; times count from the start of the scene.'
+      : 'Objects you add appear here. Drag clips to change when they appear.'));
+  }
   placePlayhead();
   drawRuler();
 }
@@ -126,6 +139,12 @@ function makeRow(o, width, depth) {
     if (eout > 0) clip.append(el('div', { class: 'ramp out', style: { width: `${Math.min(eout, e - s) * pps}px` } }));
     let text = o.type === 'caption' || o.type === 'title' || o.type === 'text' ? (o.props.text ?? '') : '';
     if (group) text = `${descendants(o.id).length} objects`;
+    if (o.type === 'voice') {
+      text = o.props.script || (o.props.audio ? o.props.audio.replace(/^.*\//, '') : 'No recording');
+      const cv = el('canvas', { class: 'wave', 'aria-hidden': 'true' });
+      clip.append(cv);
+      waveformFor(o).then((w) => drawWave(cv, w, (e - s) * pps)).catch(() => {});
+    }
     clip.append(el('div', { class: 'txt' }, String(text).replace(/\n/g, ' ')));
     const l = el('div', { class: 'edge l', title: 'Drag to change when it appears' });
     const r = el('div', { class: 'edge r', title: 'Drag to change when it disappears' });
@@ -359,6 +378,7 @@ body.addEventListener('wheel', (e) => {
   renderTimeline();
   body.scrollLeft = Math.max(0, xOf(t) - (e.clientX - body.getBoundingClientRect().left - labelW()));
 }, { passive: false });
+on('layout', () => renderTimeline());
 let resizeTimer = null;
 window.addEventListener('resize', () => {
   placePlayhead();
@@ -389,3 +409,28 @@ export function deleteSelectedKey() {
 }
 
 on('time', () => placePlayhead());
+
+function drawWave(cv, w, widthPx) {
+  if (!w || !w.peaks) return;
+  const h = 22;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.max(1, Math.round(widthPx * dpr));
+  cv.height = Math.round(h * dpr);
+  cv.style.width = `${widthPx}px`;
+  cv.style.height = `${h}px`;
+  const g = cv.getContext('2d');
+  g.scale(dpr, dpr);
+  g.fillStyle = 'rgba(190, 230, 255, 0.55)';
+  const n = w.peaks.length;
+  // the recording may be shorter than the clip
+  const span = w.clip > 0 ? Math.min(1, w.seconds / w.clip) : 1;
+  for (let i = 0; i < n; i++) {
+    const x = (i / n) * widthPx * span;
+    const a = w.peaks[i] * (h / 2 - 1);
+    g.fillRect(x, h / 2 - a, Math.max(1, (widthPx * span) / n - 0.5), 2 * a);
+  }
+  g.fillStyle = 'rgba(255, 207, 74, 0.9)';
+  for (const [a, b] of w.segments || []) {
+    g.fillRect((a / (w.clip || w.seconds)) * widthPx, h - 2, Math.max(2, ((b - a) / (w.clip || w.seconds)) * widthPx), 2);
+  }
+}

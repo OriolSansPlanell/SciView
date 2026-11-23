@@ -23,6 +23,7 @@ from ..engine.easing import EASING_NAMES
 from ..model.base import REGISTRY, Prop, SceneObject
 from ..model.project import Project
 
+ALIGN = ("left", "center", "right", "top", "middle", "bottom", "spread_x", "spread_y")
 REGIONS = {
     "center": (0.5, 0.5), "left": (0.25, 0.5), "right": (0.75, 0.5), "top": (0.5, 0.2), "bottom": (0.5, 0.82),
     "top-left": (0.25, 0.2), "top-right": (0.75, 0.2), "bottom-left": (0.25, 0.8), "bottom-right": (0.75, 0.8),
@@ -102,16 +103,23 @@ def check_value(prop: Prop, value: Any, project: Project | None = None) -> Any:
 
 
 class FilmTools:
-    """Tool calls on a project. ``scope`` may hold ``{"time": [t0, t1], "ids": [...]}``.
+    """Tool calls on a project. ``scope`` may hold ``{"time": [t0, t1], "ids": [...], "scene": "scene2"}``.
 
-    ``changes`` lists what the agent changed (object, property, value), so the person can review
-    the values the model wrote itself.
+    Times are in the time of an object's scene (the film's time when it has one scene). ``changes``
+    lists what the agent changed (object, property, value), so the person can review the values the
+    model wrote itself.
     """
 
     def __init__(self, project: Project, scope: dict | None = None):
         self.project = project
         self.scope = dict(scope or {})
         self.changes: list[dict] = []
+        if self.scope.get("scene"):
+            try:
+                self.project.current_scene = self.scope["scene"]
+            except KeyError:
+                raise ToolError(f"the scope names a scene that does not exist: {self.scope['scene']!r}") from None
+            self.scope["scene"] = self.project.current_scene.id        # a name works too
 
     # ------------------------------------------------------------------ dispatch
     def call(self, name: str, args: dict | None = None) -> dict:
@@ -130,10 +138,16 @@ class FilmTools:
 
     # ------------------------------------------------------------------ scope
     def _obj(self, oid: str, change: bool = True) -> SceneObject:
-        if oid == "camera":
-            obj = self.project.camera
+        if oid == "camera" or oid.startswith("camera@"):
+            sid = oid.split("@", 1)[1] if "@" in oid else None
+            try:
+                obj = self.project.get_scene(sid).camera
+            except KeyError:
+                raise ToolError(f"there is no scene {sid!r}; describe_film lists the scenes") from None
+            scene = self.project.get_scene(sid).id
         else:
             obj = self.project.find(oid)
+            scene = obj.scene if obj is not None else None
         if obj is None:
             raise ToolError(f"there is no object {oid!r}; describe_film lists the ids")
         if change:
@@ -142,7 +156,14 @@ class FilmTools:
             ids = self.scope.get("ids")
             if ids and oid not in ids and oid not in self._created:
                 raise ToolError(f"{oid!r} is outside your scope; you may change: {', '.join(ids)} and objects you add")
+            if self.scope.get("scene") and scene != self.scope["scene"]:
+                raise ToolError(f"{oid!r} is in another scene; you may only change scene {self.scope['scene']!r}")
         return obj
+
+    def _scene_of(self, obj) -> Any:
+        if obj.TYPE == "camera":
+            return next((sc for sc in self.project.scenes if sc.camera is obj), self.project.current_scene)
+        return self.project.scene_of(obj)
 
     @property
     def _created(self) -> set:
@@ -180,10 +201,13 @@ class FilmTools:
     def describe_film(self) -> dict:
         p = self.project
         objs = []
+        multi = len(p.scenes) > 1
         for o in p.objects:
             defaults = {q.name: q.default for q in o.all_props()}
             d = {"id": o.id, "type": o.TYPE, "name": o.name, "start": o.start, "end": o.end,
                  "props": {k: v for k, v in o.props.items() if v != defaults.get(k)}}
+            if multi:
+                d["scene"] = o.scene
             if o.keys:
                 d["keyframes"] = {k: [{"t": kf["t"], "v": kf["v"], "ease": kf.get("ease", "smooth")} for kf in ks]
                                   for k, ks in o.keys.items()}
@@ -195,11 +219,21 @@ class FilmTools:
                 d["enter"], d["exit"] = o.enter_effect, o.exit_effect
             objs.append(d)
         cam = {k: v for k, v in p.camera.props.items()}
-        return {"settings": {"width": p.size[0], "height": p.size[1], "duration": p.duration, "fps": p.fps,
-                             "title": p.settings.get("title", "")},
-                "camera": {"props": cam, "keyframes": copy.deepcopy(p.camera.keys)},
-                "objects": objs, "problems": p.problems(), "scope": self.scope or None,
-                "palette": sorted(p.palette)}
+        out = {"settings": {"width": p.size[0], "height": p.size[1], "duration": p.duration, "fps": p.fps,
+                            "title": p.settings.get("title", "")},
+               "camera": {"props": cam, "keyframes": copy.deepcopy(p.camera.keys)},
+               "objects": objs, "problems": p.problems(), "scope": self.scope or None,
+               "palette": sorted(p.palette)}
+        if multi:
+            out["scenes"] = [{"id": sc.id, "name": sc.name, "starts_at": round(a, 3), "duration": sc.duration,
+                              "transition": sc.transition, "transition_duration": sc.transition_duration,
+                              "notes": sc.notes, "camera": {"id": f"camera@{sc.id}", "props": dict(sc.camera.props),
+                                                            "keyframes": copy.deepcopy(sc.camera.keys)}}
+                             for sc, a, _b in p.timeline()]
+            out["note"] = ("Object times count from the start of their scene. 'camera' is the camera of scene "
+                           f"{p.current_scene.id!r}; use camera@<scene id> for another scene's camera.")
+            del out["camera"]
+        return out
 
     def validate(self) -> dict:
         return {"problems": self.project.problems()}
@@ -219,10 +253,21 @@ class FilmTools:
 
     def add_object(self, type: str, props: dict | None = None, name: str | None = None, start: float | None = None,
                    end: float | None = None, enter: str | None = None, exit: str | None = None,
-                   parent: str | None = None) -> dict:
+                   parent: str | None = None, scene: str | None = None) -> dict:
         klass = REGISTRY.get(type)
         if klass is None:
             raise ToolError(f"unknown type {type!r}; list_object_types gives them")
+        if scene is not None:
+            try:
+                scene = self.project.get_scene(scene).id
+            except KeyError:
+                raise ToolError(f"there is no scene {scene!r}; describe_film lists the scenes") from None
+            if self.scope.get("scene") and scene != self.scope["scene"]:
+                raise ToolError(f"you may only add objects to scene {self.scope['scene']!r}")
+        else:
+            scene = self.scope.get("scene") or self.project.current_scene.id
+        if parent is not None and self.project.find(parent) is not None:
+            scene = self.project.find(parent).scene or scene
         clean = self._props(klass, props or {})
         start = 0.0 if start is None else _num(start, "start")
         self._in_time(start, "the start")
@@ -240,8 +285,12 @@ class FilmTools:
             g = self._obj(parent, change=False)
             if not g.IS_GROUP:
                 raise ToolError(f"{parent!r} is not a group")
-        obj = self.project.add(type, name=name, start=start, end=end, enter=enter, exit=exit, parent=parent, **clean)
-        self._log(action="add", id=obj.id, type=type, props=clean)
+        dur = self.project.get_scene(scene).duration
+        if start >= dur:
+            raise ToolError(f"start {start:g} s is after the end of its scene ({dur:g} s)")
+        obj = self.project.add(type, name=name, start=start, end=end, enter=enter, exit=exit, parent=parent,
+                               scene=scene, **clean)
+        self._log(action="add", id=obj.id, type=type, props=clean, scene=scene)
         return {"id": obj.id}
 
     def set_property(self, id: str, name: str, value: Any, time: float | None = None, ease: str = "smooth") -> dict:
@@ -266,8 +315,9 @@ class FilmTools:
         if not p.animatable:
             raise ToolError(f"{name!r} cannot be animated; set it with set_property")
         t = _num(time, "time")
-        if not (0 <= t <= self.project.duration):
-            raise ToolError(f"time must be within the film (0–{self.project.duration:g} s)")
+        dur = self._scene_of(obj).duration
+        if not (0 <= t <= dur):
+            raise ToolError(f"time must be within its scene (0–{dur:g} s)")
         self._in_time(t, "the keyframe")
         if ease not in EASING_NAMES or ease == "bezier":
             raise ToolError(f"ease must be one of {', '.join(e for e in EASING_NAMES if e != 'bezier')}")
@@ -295,7 +345,7 @@ class FilmTools:
                    exit: str | None = None, enter_duration: float | None = None,
                    exit_duration: float | None = None) -> dict:
         obj = self._obj(id)
-        if id == "camera":
+        if obj.TYPE == "camera":
             raise ToolError("the camera has no timing; animate its properties instead")
         s = obj.start if start is None else _num(start, "start")
         e = obj.end if end is None else _num(end, "end")
@@ -321,7 +371,7 @@ class FilmTools:
 
     def delete(self, id: str) -> dict:
         obj = self._obj(id)
-        if id == "camera":
+        if obj.TYPE == "camera":
             raise ToolError("the camera cannot be deleted")
         for d in self.project.descendants(obj) if obj.IS_GROUP else []:
             if d.locked:
@@ -359,8 +409,10 @@ class FilmTools:
             return self.add_keyframe(id, name, time, target)
         return self.set_property(id, name, target)
 
-    def render_frame(self, time: float, scale: float = 0.5) -> dict:
-        """The frame at ``time`` as PNG bytes (key ``png``), plus the problems seen while drawing it."""
+    def render_frame(self, time: float, scale: float = 0.5, scene: str | None = None) -> dict:
+        """The frame at ``time`` as PNG bytes (key ``png``), plus the problems seen while drawing it.
+
+        With ``scene``, that scene alone at its own time; otherwise the film at film time."""
         from io import BytesIO
 
         from PIL import Image
@@ -369,11 +421,136 @@ class FilmTools:
         t = _num(time, "time")
         sc = min(max(_num(scale, "scale"), 0.1), 1.0)
         info = FrameInfo()
-        img = self.project.renderer().frame(min(max(t, 0.0), self.project.duration), sc, info)
+        if scene is not None:
+            try:
+                s_obj = self.project.get_scene(scene)
+            except KeyError:
+                raise ToolError(f"there is no scene {scene!r}") from None
+            img = self.project.renderer().frame(min(max(t, 0.0), s_obj.duration), sc, info, scene=s_obj.id)
+        else:
+            img = self.project.renderer().frame(min(max(t, 0.0), self.project.duration), sc, info)
         buf = BytesIO()
         Image.fromarray(np.asarray(img)).save(buf, "PNG")
         return {"png": buf.getvalue(), "issues": info.issues,
                 "objects_visible": [b["id"] for b in info.boxes if not b.get("group")]}
+
+    def check_frames(self) -> dict:
+        """Look at frames for text that overlaps text, objects reaching outside the frame and text that is hard
+        to read against what is behind it."""
+        from .. import checks
+        return {"layout": checks.layout_issues(self.project), "contrast": checks.contrast_issues(self.project, 0.35)}
+
+    def align(self, ids: list, how: str) -> dict:
+        """Line 2D objects up (left, center, right, top, middle, bottom) or space them evenly (spread_x, spread_y)."""
+        if how not in ALIGN:
+            raise ToolError(f"how must be one of {', '.join(ALIGN)}")
+        objs = [self._obj(i) for i in ids]
+        if len(objs) < 2:
+            raise ToolError("give two or more ids")
+        if any(o.IS_3D for o in objs):
+            raise ToolError("align works on 2D objects")
+        names = []
+        for o in objs:
+            n = next((x for x in ("position", "center") if x in o.prop_map() and o.prop_map()[x].kind == "vec2"), None)
+            if n is None:
+                raise ToolError(f"{o.id!r} has no position")
+            if o.keys.get(n):
+                raise ToolError(f"{o.id!r} moves (its {n} is animated); align its keyframes one by one")
+            names.append(n)
+        pts = [list(map(float, o.props[n])) for o, n in zip(objs, names)]
+        axis = 0 if how in ("left", "center", "right", "spread_x") else 1
+        vals = [p[axis] for p in pts]
+        if how.startswith("spread"):
+            order = sorted(range(len(objs)), key=lambda i: vals[i])
+            lo, hi = vals[order[0]], vals[order[-1]]
+            for k, i in enumerate(order):
+                pts[i][axis] = lo + (hi - lo) * k / (len(order) - 1)
+        else:
+            target = {"left": min, "top": min, "right": max, "bottom": max}.get(how, lambda v: sum(v) / len(v))(vals)
+            for p in pts:
+                p[axis] = target
+        for o, n, p in zip(objs, names, pts):
+            o.set(n, p)
+            self._log(action="set", id=o.id, prop=n, value=p, layout=True)
+        return {"ok": True, "positions": {o.id: p for o, p in zip(objs, pts)}}
+
+    def add_scene(self, name: str, duration: float, transition: str = "crossfade", transition_duration: float = 0.8,
+                  after: str | None = None, template: str | None = None, notes: str = "") -> dict:
+        """A new scene (after the last one, or after ``after``). ``template`` fills it from a template."""
+        if self.scope.get("scene") or self.scope.get("ids") or self.scope.get("time"):
+            raise ToolError("your scope does not allow adding scenes")
+        from ..engine.transitions import TRANSITIONS
+        if transition not in TRANSITIONS:
+            raise ToolError(f"transition must be one of {', '.join(TRANSITIONS)}")
+        d = _num(duration, "duration")
+        if not 0.5 <= d <= 3600:
+            raise ToolError("duration must be between 0.5 and 3600 seconds")
+        try:
+            sc = self.project.add_scene(name, d, transition=transition,
+                                        transition_duration=_num(transition_duration, "transition_duration"),
+                                        after=after, notes=notes)
+        except KeyError:
+            raise ToolError(f"there is no scene {after!r}") from None
+        made = []
+        if template:
+            from ..server import instantiate_template
+            try:
+                tp = instantiate_template(template, self.project.base_dir)
+            except ValueError as exc:
+                raise ToolError(str(exc)) from None
+            sc.duration = max(d, tp.duration)
+            sc.camera = tp.scenes[0].camera
+            remap = {}
+            for o in tp.objects:
+                new_id = self.project._unique_id(o.TYPE)
+                remap[o.id] = new_id
+            for o in tp.objects:
+                c = o.copy(remap[o.id])
+                c.scene = sc.id
+                if c.parent:
+                    c.parent = remap.get(c.parent)
+                for p in c.all_props():
+                    if p.kind == "ref" and c.props.get(p.name) in remap:
+                        c.props[p.name] = remap[c.props[p.name]]
+                self.project.objects.append(c)
+                made.append(c.id)
+        self._log(action="add_scene", id=sc.id, name=sc.name)
+        for oid in made:
+            self._log(action="add", id=oid, type=self.project.find(oid).TYPE, props={}, scene=sc.id, template=True)
+        return {"id": sc.id, "starts_at": round(sc.start, 3), "objects": made}
+
+    def set_scene(self, scene: str, name: str | None = None, duration: float | None = None,
+                  transition: str | None = None, transition_duration: float | None = None, notes: str | None = None,
+                  chapter: bool | None = None) -> dict:
+        """Change a scene: its name, length, how it comes in, its notes and whether it is a chapter."""
+        try:
+            sc = self.project.get_scene(scene)
+        except KeyError:
+            raise ToolError(f"there is no scene {scene!r}; describe_film lists them") from None
+        if self.scope.get("scene") and sc.id != self.scope["scene"]:
+            raise ToolError(f"you may only change scene {self.scope['scene']!r}")
+        if self.scope.get("ids") or self.scope.get("time"):
+            raise ToolError("your scope does not allow changing scenes")
+        if duration is not None:
+            d = _num(duration, "duration")
+            if not 0.5 <= d <= 3600:
+                raise ToolError("duration must be between 0.5 and 3600 seconds")
+            sc.duration = d
+        if transition is not None:
+            try:
+                sc.set_transition(transition)
+            except ValueError as exc:
+                raise ToolError(str(exc)) from None
+        if transition_duration is not None:
+            sc.transition_duration = max(0.0, _num(transition_duration, "transition_duration"))
+        if name:
+            sc.name = str(name)
+        if notes is not None:
+            sc.notes = str(notes)
+        if chapter is not None:
+            sc.chapter = bool(chapter)
+        self._log(action="scene", id=sc.id, duration=sc.duration, transition=sc.transition)
+        return {"ok": True, "starts_at": round(sc.start, 3), "film_duration": self.project.duration}
 
     def review(self) -> dict:
         """What the agent changed in this session: values the person should check."""
@@ -400,7 +577,9 @@ TOOLS: dict[str, dict] = {
                    "input": _schema({"type": {"type": "string"}, "props": {"type": "object"},
                                      "name": {"type": "string"}, "start": {"type": "number"},
                                      "end": {"type": "number"}, "enter": {"type": "string"},
-                                     "exit": {"type": "string"}, "parent": {"type": "string"}}, ["type"])},
+                                     "exit": {"type": "string"}, "parent": {"type": "string"},
+                                     "scene": {"type": "string", "description": "Scene id or name (default: "
+                                               "the current scene)"}}, ["type"])},
     "set_property": {"description": "Set one property. With a time, adds a keyframe instead (the property animates).",
                      "input": _schema({"id": _ID, "name": {"type": "string"}, "value": _ANY,
                                        "time": {"type": "number"}, "ease": {"type": "string"}}, ["id", "name", "value"])},
@@ -424,11 +603,35 @@ TOOLS: dict[str, dict] = {
     "place": {"description": "Move a 2D object to a region of the frame: " + ", ".join(REGIONS) + ".",
               "input": _schema({"id": _ID, "region": {"type": "string", "enum": list(REGIONS)},
                                 "time": {"type": "number"}}, ["id", "region"])},
-    "render_frame": {"description": "Look at the film: the picture at a time (seconds), and any drawing problems.",
-                     "input": _schema({"time": {"type": "number"}, "scale": {"type": "number"}}, ["time"])},
+    "render_frame": {"description": "Look at the film: the picture at a time (seconds), and any drawing problems. "
+                                    "With scene, that scene alone at its own time.",
+                     "input": _schema({"time": {"type": "number"}, "scale": {"type": "number"},
+                                       "scene": {"type": "string"}}, ["time"])},
+    "check_frames": {"description": "Look at frames for text overlapping text, objects outside the frame, and text "
+                                    "that is hard to read against what is behind it. Use it after building a layout.",
+                     "input": _schema({})},
+    "align": {"description": "Line up 2D objects (left, center, right, top, middle, bottom) or space them evenly "
+                             "(spread_x, spread_y).",
+              "input": _schema({"ids": {"type": "array", "items": {"type": "string"}},
+                                "how": {"type": "string", "enum": list(ALIGN)}}, ["ids", "how"])},
+    "add_scene": {"description": "Add a scene to the film (a part with its own objects, camera and clock). template "
+                                 "fills it from a template (tomography, optics, neutron_imaging, data_story, clusters, "
+                                 "waves, lattice, title_card).",
+                  "input": _schema({"name": {"type": "string"}, "duration": {"type": "number"},
+                                    "transition": {"type": "string"}, "transition_duration": {"type": "number"},
+                                    "after": {"type": "string"}, "template": {"type": "string"},
+                                    "notes": {"type": "string"}}, ["name", "duration"])},
+    "set_scene": {"description": "Change a scene: name, duration, transition into it (cut, crossfade, dip, wipe_left, "
+                                 "wipe_right, wipe_up, wipe_down, push_left, push_right, push_up, push_down, zoom), "
+                                 "its notes (speaker notes) and whether it is a chapter.",
+                  "input": _schema({"scene": {"type": "string"}, "name": {"type": "string"},
+                                    "duration": {"type": "number"}, "transition": {"type": "string"},
+                                    "transition_duration": {"type": "number"}, "notes": {"type": "string"},
+                                    "chapter": {"type": "boolean"}}, ["scene"])},
     "validate": {"description": "Problems in the film: missing files, unreadable expressions, broken references.",
                  "input": _schema({})},
     "review": {"description": "Everything you changed in this session, for the person to check.",
                "input": _schema({})},
 }
-MUTATING = {"add_object", "set_property", "add_keyframe", "remove_keyframe", "set_timing", "delete", "group", "place"}
+MUTATING = {"add_object", "set_property", "add_keyframe", "remove_keyframe", "set_timing", "delete", "group", "place",
+            "align", "add_scene", "set_scene"}
