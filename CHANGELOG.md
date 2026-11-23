@@ -3,6 +3,19 @@
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Example notebooks** in `examples/notebooks`: a tomography from radiographs to segmentation, a Fourier
+  analysis of a vibration signal, a neutron powder diffraction experiment with a Rietveld refinement, and a
+  tour of every object type and export format. Each builds a film scene by scene from its own analysis.
+  `tools/run_notebooks.py` runs them; a weekly workflow keeps them working.
+- `sciview.jupyter.still(film, t)`: a frame as a JPEG for notebooks (`Still` still gives PNG).
+
+### Changed
+- `film.preview()` stores its frames as JPEG and shows the first frame without scripts, so saved notebooks
+  stay small and show a picture in viewers that do not run JavaScript (GitHub, nbviewer).
+
 ## [1.0.0] - 2026-11-23
 
 The first stable release: a file format and plugin API that stay compatible through 1.x, notebooks,

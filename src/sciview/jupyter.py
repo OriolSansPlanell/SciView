@@ -58,8 +58,9 @@ class Preview:
         uid = f"sciview-preview-{next(_ids)}"
         data = json.dumps({"frames": self.frames, "times": self.times, "fps": self.fps, "chapters": self.chapters})
         title = html.escape(self.project.settings.get("title") or "SciView film")
+        first = self.frames[0] if self.frames else ""
         return f"""<div id="{uid}" style="font:13px system-ui,sans-serif;max-width:960px">
-<img alt="{title}" style="width:100%;display:block;background:#000;border-radius:4px">
+<img alt="{title}" src="data:image/jpeg;base64,{first}" style="width:100%;display:block;background:#000;border-radius:4px">
 <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
 <button type="button" class="play" aria-label="Play" style="min-width:64px">Play</button>
 <input type="range" min="0" max="{len(self.frames) - 1}" value="0" step="1" aria-label="Time" style="flex:1">
@@ -91,16 +92,29 @@ def preview(project: Project, fps: float = 10.0, scale: float = 0.25, start: flo
 
 
 class Still:
-    """One frame, shown by Jupyter as a PNG."""
+    """One frame, shown by Jupyter as a PNG (or a JPEG, ``fmt="jpeg"``, which keeps notebooks small)."""
 
-    def __init__(self, project: Project, t: float, scale: float = 0.5):
+    def __init__(self, project: Project, t: float, scale: float = 0.5, fmt: str = "png", quality: int = 85):
         from PIL import Image
+        if fmt not in ("png", "jpeg"):
+            raise ValueError("fmt is 'png' or 'jpeg'")
         buf = io.BytesIO()
-        Image.fromarray(project.frame(t, scale)).save(buf, "PNG")
-        self.png = buf.getvalue()
+        img = Image.fromarray(project.frame(t, scale))
+        img.save(buf, "PNG") if fmt == "png" else img.save(buf, "JPEG", quality=quality)
+        self.fmt = fmt
+        self.data = buf.getvalue()
+        self.png = self.data if fmt == "png" else None
 
-    def _repr_png_(self) -> bytes:
-        return self.png
+    def _repr_png_(self) -> bytes | None:
+        return self.data if self.fmt == "png" else None
+
+    def _repr_jpeg_(self) -> bytes | None:
+        return self.data if self.fmt == "jpeg" else None
+
+
+def still(project: Project, t: float, scale: float = 0.5, fmt: str = "jpeg") -> Still:
+    """One frame of a film for a notebook (JPEG by default, to keep the notebook small)."""
+    return Still(project, t, scale, fmt)
 
 
 class InlineEditor:
