@@ -5,7 +5,7 @@
 SciView needs Python 3.10 or newer. In a terminal:
 
 ```bash
-pip install "sciview[math] @ git+https://github.com/OriolSansPlanell/SciView"
+pip install "sciview[math]"
 ```
 
 This installs SciView with everything it needs, including an ffmpeg binary for video export. The `math` extra
@@ -34,6 +34,10 @@ It prints the versions, where ffmpeg was found and how many processor cores rend
    `assets/`.
 8. Click **Export video**, keep **MP4** and press **Export**. The file appears next to your project and can be
    downloaded from the dialog.
+
+To tell a longer story, start from **Explainer in scenes** instead: it has three scenes (question, method,
+result) in the strip above the timeline, each with its own objects and camera, joined by transitions. Click
+a scene to work on it, press **+ Scene** to add one, and press <kbd>R</kbd> to record narration over it.
 
 Close the editor with <kbd>Ctrl</kbd>+<kbd>C</kbd> in the terminal. Open the film again with
 `sciview edit <name>.sciview.json`.

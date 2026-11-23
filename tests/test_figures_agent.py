@@ -93,9 +93,9 @@ def test_still_figures_are_cached_and_export_uses_one_process(tmp_project, monke
     seen = []
     real = export.iter_frames
 
-    def spy(project, times, scale, workers, cancel=None):
+    def spy(project, times, scale, workers, cancel=None, opts=None):
         seen.append(workers)
-        return real(project, times, scale, workers, cancel)
+        return real(project, times, scale, workers, cancel, opts)
     monkeypatch.setattr(export, "iter_frames", spy)
     out = export.export(p, p.base_dir / "frames", start=0.5, end=0.6, scale=0.25, workers=4, fps=10)
     assert seen == [1]                                          # figure functions cannot go to other processes
@@ -137,7 +137,7 @@ def test_tools_check_every_value(film):
         ("add_object", {"type": "caption", "start": 3, "end": 2}, "after start"),
         ("add_object", {"type": "caption", "enter": "explode"}, "enter must be"),
         ("set_property", {"id": "nope", "name": "text", "value": "x"}, "no object"),
-        ("add_keyframe", {"id": "title1", "name": "title_size", "time": 99, "value": 10}, "within the film"),
+        ("add_keyframe", {"id": "title1", "name": "title_size", "time": 99, "value": 10}, "within its scene"),
         ("add_keyframe", {"id": "title1", "name": "title_size", "time": 1, "value": 10, "ease": "wobbly"}, "ease"),
         ("place", {"id": "title1", "region": "somewhere"}, "region must be"),
         ("add_object", {"type": "caption", "colour": "red"}, "does not take"),
@@ -340,3 +340,20 @@ def test_editor_refuses_a_stale_save_after_an_agent_change(editor):
 def test_editor_backend_reports_an_unreachable_editor():
     with pytest.raises(ToolError, match="cannot reach"):
         EditorBackend("http://127.0.0.1:9").call("describe_film", {})
+
+
+def test_scene_scope_by_name_in_files_and_the_editor(editor, tmp_path):
+    url, srv = editor
+    film = srv.session.project
+    method = film.add_scene("Method", 5)
+    method.add("caption", text="In the method")
+    film.save()
+    backend = EditorBackend(url, {"scene": "Method"})
+    oid = backend.call("add_object", {"type": "caption", "props": {"text": "Scoped"}})["id"]
+    assert srv.session.project.find(oid).scene == method.id
+    with pytest.raises(ToolError, match="another scene"):
+        backend.call("set_property", {"id": "title1", "name": "size", "value": 50})
+    tools = FilmTools(sv.load(film.path), {"scene": "Method"})
+    assert tools.scope["scene"] == method.id
+    with pytest.raises(ToolError, match="does not exist"):
+        FilmTools(sv.load(film.path), {"scene": "Nope"})

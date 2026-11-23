@@ -19,9 +19,13 @@ export const S = {
   assets: [],
   templates: [],
   formats: {},
+  targets: {},          // export presets
+  guides: 'none',       // safe-area guides in the preview: none, title, square, vertical
   ffmpeg: true,
   version: '',
-  selected: null,       // primary selection: object id, 'camera', or null (film settings)
+  scene: null,          // id of the scene shown in the timeline; S.time is that scene's own time
+  transitions: {},      // transition name -> label
+  selected: null,       // primary selection: object id, 'camera', 'scene', or null (film settings)
   selection: [],        // all selected object ids (primary last)
   problems: [],         // {id, prop, message} from the project checks
   frameIssues: [],      // {id, prop, message} from the last rendered frame
@@ -36,6 +40,7 @@ export const S = {
   warnings: [],
   boxes: [],
   lastMs: 80,
+  assistantBusy: false,
 };
 
 // ------------------------------------------------------------------ events
@@ -45,31 +50,97 @@ export function emit(evt, data) { (listeners[evt] || []).forEach((fn) => fn(data
 
 // ------------------------------------------------------------------ lookup
 export const fps = () => S.project.settings.fps || 30;
-export const duration = () => Number(S.project.settings.duration) || 1;
 export const frameDt = () => 1 / fps();
+
+// ------------------------------------------------------------------ scenes
+// Objects belong to a scene and their times count from its start. A scene's transition overlaps the end
+// of the scene before it (mirrors sciview.model.project.Project.timeline).
+export const scenes = () => S.project.scenes;
+export const currentScene = () => scenes().find((sc) => sc.id === S.scene) || scenes()[0];
+export const sceneCamera = (sc) => (sc === scenes()[0] ? S.project.camera : sc.camera);
+/** Length of the current scene: the timeline's span. */
+export const duration = () => Number(currentScene().duration) || 1;
+
+export function overlap(sc) {
+  const list = scenes();
+  const i = list.indexOf(sc);
+  if (i <= 0 || sc.transition === 'cut') return 0;
+  const prev = list[i - 1];
+  return Math.max(0, Math.min(Number(sc.transition_duration) || 0, prev.duration * 0.95, sc.duration * 0.95));
+}
+
+export function sceneStart(sc) {
+  let t = 0;
+  for (const x of scenes()) {
+    if (x === sc) return t - overlap(x);
+    t += x.duration - overlap(x);
+  }
+  return 0;
+}
+
+export const filmDuration = () => { const l = scenes()[scenes().length - 1]; return sceneStart(l) + l.duration; };
+export const filmTime = () => sceneStart(currentScene()) + S.time;
+export const sceneObjects = () => S.project.objects.filter((o) => o.scene === currentScene().id);
+export const sceneOf = (o) => scenes().find((sc) => sc.id === o.scene) || scenes()[0];
+
+/** The scene coming in at film time t (the later one during a transition) and its own time. */
+export function sceneAt(t) {
+  const list = scenes();
+  let found = null;
+  for (const sc of list) {
+    const a = sceneStart(sc);
+    if (a <= t + 1e-9 && t < a + sc.duration) found = { scene: sc, t: t - a };
+  }
+  if (found) return found;
+  const last = list[list.length - 1];
+  return t < 0 ? { scene: list[0], t: 0 } : { scene: last, t: Math.min(t - sceneStart(last), last.duration) };
+}
+
+export function syncDuration() { if (S.project) S.project.settings.duration = Math.round(filmDuration() * 1000) / 1000; }
+
+function normalizeCamera(c) {
+  const cam = c || { props: {}, keys: {} };
+  Object.assign(cam, { id: 'camera', type: 'camera', name: 'Camera' });
+  cam.props ||= {};
+  cam.keys ||= {};
+  return cam;
+}
 
 export function normalize() {
   const p = S.project;
   p.settings ||= {};
   p.palette ||= { ...S.defaultPalette };
-  p.camera ||= { props: {}, keys: {} };
-  Object.assign(p.camera, { id: 'camera', type: 'camera', name: 'Camera' });
-  p.camera.props ||= {};
-  p.camera.keys ||= {};
+  p.camera = normalizeCamera(p.camera);
   p.objects ||= [];
+  if (!Array.isArray(p.scenes) || !p.scenes.length) {
+    p.scenes = [{ id: 'scene1', name: 'Scene 1', duration: Number(p.settings.duration) || 10, transition: 'cut',
+      transition_duration: 1 }];
+  }
+  p.scenes.forEach((sc, i) => {
+    sc.duration = Math.max(0.1, Number(sc.duration) || 10);
+    sc.transition ||= 'cut';
+    if (sc.transition_duration == null) sc.transition_duration = 1;
+    if (i === 0) delete sc.camera;            // the first scene's camera is the project's camera
+    else sc.camera = normalizeCamera(sc.camera);
+  });
+  const ids = new Set(p.scenes.map((sc) => sc.id));
+  p.styles ||= {};
   for (const o of p.objects) {
     o.props ||= {};
     o.keys ||= {};
     o.enter ||= { effect: 'fade', duration: 0.6 };
     o.exit ||= { effect: 'fade', duration: 0.6 };
     if (o.start == null) o.start = 0;
+    if (!o.scene || !ids.has(o.scene)) o.scene = p.scenes[0].id;
   }
   for (const s of S.settingsSchema) if (!(s.name in p.settings)) p.settings[s.name] = s.default;
+  if (!S.scene || !ids.has(S.scene)) S.scene = p.scenes[0].id;
+  syncDuration();
 }
 
 export function objById(id) {
   if (!S.project || id == null) return null;
-  if (id === 'camera') return S.project.camera;
+  if (id === 'camera') return sceneCamera(currentScene());
   return S.project.objects.find((o) => o.id === id) || null;
 }
 
@@ -129,7 +200,7 @@ export const isSelected = (id) => S.selection.includes(id);
 
 /** Change the selection. mode: 'set' (default), 'toggle' or 'add'. */
 export function select(id, mode = 'set') {
-  if (id == null || id === 'camera') {
+  if (id == null || id === 'camera' || id === 'scene') {
     S.selection = id === 'camera' ? ['camera'] : [];
     S.selected = id;
   } else if (mode === 'toggle') {
@@ -327,7 +398,15 @@ const redoStack = [];
 let lastCoalesce = null;
 let lastCommit = 0;
 
+let busyToast = 0;
 export function commit(fn, opts = {}) {
+  if (S.assistantBusy && opts.source !== 'assistant') {
+    if (performance.now() - busyToast > 2500) {
+      busyToast = performance.now();
+      emit('error', 'The assistant is changing the film. Wait for it to finish, or stop it.');
+    }
+    return;
+  }
   const before = JSON.stringify(S.project);
   fn(S.project);
   const now = performance.now();
@@ -345,6 +424,15 @@ export function commit(fn, opts = {}) {
 }
 
 export function breakCoalesce() { lastCoalesce = null; }
+
+/** Replace the film with a version worked out on the server (a theme, captions from a script ...): one undo step. */
+export function applyProjectJson(json, note = '') {
+  commit((p) => {
+    for (const k of Object.keys(p)) delete p[k];
+    Object.assign(p, JSON.parse(JSON.stringify(json)));
+    normalize();
+  }, { source: 'transform', note, settings: true });
+}
 
 export function undo() {
   if (!undoStack.length) return false;
@@ -366,7 +454,7 @@ function afterHistory() {
   normalize();
   lastCoalesce = null;
   S.selection = S.selection.filter((id) => objById(id));
-  if (S.selected && !objById(S.selected)) S.selected = S.selection.length ? S.selection[S.selection.length - 1] : null;
+  if (S.selected && S.selected !== 'scene' && !objById(S.selected)) S.selected = S.selection.length ? S.selection[S.selection.length - 1] : null;
   markDirty();
   scheduleSync();
   emit('project', { external: true });
@@ -425,7 +513,7 @@ export async function pullExternal() {
   S.rev = r.rev;
   normalize();
   S.selection = S.selection.filter((id) => objById(id));
-  if (S.selected && !objById(S.selected)) S.selected = S.selection.length ? S.selection[S.selection.length - 1] : null;
+  if (S.selected && S.selected !== 'scene' && !objById(S.selected)) S.selected = S.selection.length ? S.selection[S.selection.length - 1] : null;
   markDirty();
   let note = '';
   try { note = (await api.changes()).note; } catch (e) { /* ignore */ }
@@ -434,13 +522,40 @@ export async function pullExternal() {
   requestFrame();
 }
 
+/** Take the film from the server without an undo step (the assistant's request is recorded as one step at the end). */
+export async function pullQuiet() {
+  let r;
+  try { r = await api.project(); } catch (e) { return false; }
+  if (!r || r.rev === S.rev) return false;
+  S.project = r.project;
+  S.rev = r.rev;
+  normalize();
+  S.selection = S.selection.filter((id) => objById(id));
+  if (S.selected && S.selected !== 'scene' && !objById(S.selected)) S.selected = S.selection.length ? S.selection[S.selection.length - 1] : null;
+  emit('project', { external: true, source: 'assistant' });
+  requestFrame();
+  return true;
+}
+
+/** Record the state before an assistant request as one undo step. */
+export function pushUndo(beforeJson) {
+  if (beforeJson === JSON.stringify(S.project)) return false;
+  undoStack.push(beforeJson);
+  if (undoStack.length > 300) undoStack.shift();
+  redoStack.length = 0;
+  lastCoalesce = null;
+  markDirty();
+  emit('project', { source: 'assistant' });
+  return true;
+}
+
 let watching = false;
 export function watchExternal(interval = 1200) {
   if (watching) return;
   watching = true;
   const tick = async () => {
     try {
-      if (!needSync && !syncing && !document.hidden) {
+      if (!needSync && !syncing && !document.hidden && !S.assistantBusy) {
         const c = await api.changes();
         if (c.external_rev > S.rev && c.rev !== S.rev) await pullExternal();
       }
@@ -473,7 +588,7 @@ async function pump() {
   try {
     await synced();
     const scale = S.playing ? (S.lastMs < 70 ? Math.min(S.scale, 0.5) : 0.25) : S.scale;
-    const t = Math.round(S.time * fps()) / fps();
+    const t = Math.round(filmTime() * fps()) / fps();
     const r = await api.frame(t, scale, S.playing);
     if (!S.playing || scale === S.scale) S.lastMs = r.ms;
     else S.lastMs = Math.min(S.lastMs, r.ms * 1.2);
@@ -501,6 +616,7 @@ export function applyState(st, { keepTime = false } = {}) {
   S.fonts = sc.fonts;
   S.defaultPalette = sc.palette;
   S.lightPalette = sc.light_palette;
+  S.transitions = sc.transitions || { cut: 'Cut' };
   S.project = st.project;
   S.path = st.path;
   S.name = st.name;
@@ -510,15 +626,17 @@ export function applyState(st, { keepTime = false } = {}) {
   S.assets = st.assets;
   S.templates = st.templates;
   S.formats = st.formats;
+  S.targets = st.targets || {};
   S.ffmpeg = st.ffmpeg;
   S.version = st.version;
   S.issues = st.issues || [];
   S.problems = st.problems || [];
   S.recovery = st.recovery || null;
   S.rev = st.rev;
+  if (!keepTime) S.scene = null;
   normalize();
   if (!keepTime) S.time = 0;
   S.time = Math.min(S.time, duration());
   S.selection = S.selection.filter((id) => objById(id));
-  if (S.selected && !objById(S.selected)) S.selected = null;
+  if (S.selected && S.selected !== 'scene' && !objById(S.selected)) S.selected = null;
 }

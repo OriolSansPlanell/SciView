@@ -1,0 +1,17 @@
+{
+  "sciview_theme": 1,
+  "name": "Light paper",
+  "description": "White background and darker colours, for papers, posters and bright rooms.",
+  "palette": {
+    "teal": "#0f8f84", "gold": "#c98a00", "amber": "#d9730d", "blue": "#2563eb", "ice": "#0891b2",
+    "cream": "#1f2937", "red": "#dc2626", "violet": "#7c3aed", "green": "#16a34a", "white": "#111827",
+    "gray": "#6b7280", "navy": "#e5e7eb"
+  },
+  "settings": {
+    "background": "#ffffff", "background2": "#f4f6fa", "background_style": "vertical", "stars": 0.0,
+    "vignette": 0.0, "bloom": 0.15, "font": "Inter"
+  },
+  "styles": {
+    "caption": {"style": "plain"}
+  }
+}

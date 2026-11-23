@@ -1,5 +1,5 @@
 // Dialogs: start a film, open, save as, export, help.
-import { S, emit, applyState, resetHistory, synced, duration, select, objById } from './state.js';
+import { S, emit, applyState, resetHistory, synced, select, objById, filmDuration, filmTime } from './state.js';
 import { api } from './api.js';
 import { el, openModal, toast, fmtTime } from './ui.js';
 import { icon } from './icons.js';
@@ -120,36 +120,89 @@ let exportTimer = null;
 
 export function exportDialog() {
   const fmts = Object.entries(S.formats);
-  const labels = { mp4: 'MP4', webm: 'WebM', mov: 'ProRes', gif: 'GIF', png: 'PNG frames' };
+  const labels = { mp4: 'MP4', webm: 'WebM', mov: 'ProRes', gif: 'GIF', png: 'PNG frames', html: 'Web page', pptx: 'PowerPoint' };
   const radios = el('div', { class: 'formats' }, fmts.map(([k, desc], i) => el('label', { class: 'fmt' },
     el('input', { type: 'radio', name: 'fmt', value: k, checked: i === 0 }), el('b', {}, labels[k] || k), el('span', {}, desc.split(' - ')[1] || desc))));
   const W = S.project.settings.width, H = S.project.settings.height;
-  const scale = el('select', {}, [[0.25, 'Quarter'], [0.5, 'Half'], [1, 'Full'], [2, 'Double']].map(([v, n]) =>
-    el('option', { value: v, selected: v === 1 }, `${n} (${Math.round(W * v / 2) * 2} × ${Math.round(H * v / 2) * 2})`)));
-  const crf = el('select', {}, [[14, 'Very high'], [18, 'High'], [23, 'Standard'], [28, 'Small file']].map(([v, n]) =>
+  const SIZES = [[0.25, 'Quarter'], [0.5, 'Half'], [1, 'Full'], [2, 'Double']];
+  const scale = el('select', { 'aria-label': 'Size' }, SIZES.map(([v]) => el('option', { value: v, selected: v === 1 })));
+  // with a preset the sizes are fractions of the preset's size, otherwise of the film's
+  const sizeLabels = (t) => {
+    const [w, h] = t && t.size ? t.size : [W, H];
+    [...scale.options].forEach((o, i) => {
+      const v = SIZES[i][0];
+      o.textContent = `${SIZES[i][1]} (${Math.round(w * v / 2) * 2} × ${Math.round(h * v / 2) * 2})`;
+    });
+  };
+  sizeLabels(null);
+  const crf = el('select', { 'aria-label': 'Quality' }, [[14, 'Very high'], [18, 'High'], [23, 'Standard'], [28, 'Small file']].map(([v, n]) =>
     el('option', { value: v, selected: v === 18 }, n)));
   const base = (S.untitled ? (S.project.settings.title || 'film') : S.name.split('.')[0]).toLowerCase().replace(/[^a-z0-9]+/g, '_');
-  const name = el('input', { type: 'text', value: `${base}.mp4`, spellcheck: 'false' });
-  const subs = el('input', { type: 'checkbox', checked: S.project.objects.some((o) => o.type === 'caption') });
-  radios.addEventListener('change', () => {
+  const name = el('input', { type: 'text', value: `${base}.mp4`, spellcheck: 'false', 'aria-label': 'File name' });
+  const hasCaps = S.project.objects.some((o) => o.type === 'caption');
+  const subs = el('select', { 'aria-label': 'Captions' },
+    [['off', 'Drawn in the picture'], ['file', 'Drawn, and a subtitle file (.srt, .vtt)'],
+      ['soft', 'As subtitles viewers can switch off'], ['embed', 'Drawn, and as subtitles']].map(([v, n]) =>
+      el('option', { value: v, selected: v === (hasCaps ? 'file' : 'off') }, n)));
+  const transparent = el('input', { type: 'checkbox', 'aria-label': 'Transparent background' });
+  const chapters = el('input', { type: 'checkbox', checked: S.project.scenes.length > 1, disabled: S.project.scenes.length < 2, 'aria-label': 'Chapter markers' });
+  let target = null;
+  const presetRow = el('div', { class: 'presets' });
+  const setFmt = (f) => {
+    const r = radios.querySelector(`input[value="${f}"]`);
+    if (r) { r.checked = true; radios.dispatchEvent(new Event('change')); }
+  };
+  for (const [k, t] of Object.entries(S.targets || {})) {
+    const b = el('button', { type: 'button', class: 'preset', title: t.help, 'aria-pressed': 'false' }, t.label);
+    b.addEventListener('click', () => {
+      const on = target !== k;
+      target = on ? k : null;
+      presetRow.querySelectorAll('.preset').forEach((x) => x.setAttribute('aria-pressed', String(x === b && on)));
+      sizeLabels(on ? t : null);
+      scale.value = '1';
+      if (!on) return;
+      setFmt(t.still ? 'png' : t.ext);
+      transparent.checked = !!t.transparent;
+      name.value = `${base}_${k}.${t.still ? 'png' : t.ext}`;
+      if (k === 'square' || k === 'vertical') { S.guides = k; emit('guides'); }
+    });
+    presetRow.append(b);
+  }
+  const syncFmt = () => {
     const f = radios.querySelector('input:checked').value;
-    name.value = name.value.replace(/(\.[a-z0-9]+|_frames)?$/i, f === 'png' ? '_frames' : `.${f}`);
-    if (f === 'gif' && Number(scale.value) > 0.5) scale.value = '0.5';
-    crf.disabled = !(f === 'mp4' || f === 'webm');
-  });
+    if (!target || !S.targets[target] || S.targets[target].ext !== f) {
+      if (target && !(S.targets[target].still && f === 'png')) {
+        target = null;
+        presetRow.querySelectorAll('.preset').forEach((x) => x.setAttribute('aria-pressed', 'false'));
+        sizeLabels(null);
+      }
+      name.value = name.value.replace(/(\.[a-z0-9]+|_frames)?$/i, f === 'png' ? '_frames' : `.${f}`);
+    }
+    if (f === 'gif' && !target && Number(scale.value) > 0.5) scale.value = '0.5';
+    crf.disabled = !(f === 'mp4' || f === 'webm' || f === 'html' || f === 'pptx');
+    transparent.disabled = !(f === 'mov' || f === 'webm' || f === 'png');
+    if (transparent.disabled) transparent.checked = false;
+    subs.disabled = f === 'gif' || f === 'png' || f === 'pptx' || f === 'html';
+  };
+  radios.addEventListener('change', syncFmt);
   const bar = el('div', { class: 'progress' }, el('div'));
-  const status = el('div', { class: 'export-status' }, S.ffmpeg ? `${fmtTime(duration())} s at ${S.project.settings.fps} frames per second.` : 'ffmpeg was not found: only PNG frames can be written. Install ffmpeg or run pip install imageio-ffmpeg.');
+  const status = el('div', { class: 'export-status' }, S.ffmpeg ? `${fmtTime(filmDuration())} s at ${S.project.settings.fps} frames per second${S.project.scenes.length > 1 ? `, ${S.project.scenes.length} scenes` : ''}.` : 'ffmpeg was not found: only PNG frames can be written. Install ffmpeg or run pip install imageio-ffmpeg.');
   const startBtn = el('button', { class: 'btn primary' }, 'Export');
   const cancelBtn = el('button', { class: 'btn', hidden: true }, 'Stop');
   const download = el('a', { class: 'btn', hidden: true }, 'Download');
   const body = el('div', {},
+    el('div', { class: 'field' }, el('span', {}, 'Presets'), presetRow),
     el('div', { class: 'field' }, el('span', {}, 'Format'), radios),
     el('div', { class: 'two' },
       el('label', { class: 'field' }, el('span', {}, 'Size'), scale),
       el('label', { class: 'field' }, el('span', {}, 'Quality'), crf)),
     el('label', { class: 'field' }, el('span', {}, `File name (in ${S.baseDir})`), name),
-    el('label', { class: 'check' }, subs, 'Also write the captions as a subtitle file (.srt)'),
+    el('label', { class: 'field' }, el('span', {}, 'Captions'), subs),
+    el('div', { class: 'two' },
+      el('label', { class: 'check', title: 'ProRes 4444, WebM or PNG frames with an alpha channel, to lay over slides or footage' }, transparent, 'Transparent background'),
+      el('label', { class: 'check', title: 'Scene names as chapters that video players can jump to' }, chapters, 'Chapter markers from scenes')),
     bar, status);
+  syncFmt();
   const poll = async () => {
     try {
       const st = await api.exportStatus();
@@ -190,7 +243,11 @@ export function exportDialog() {
       download.hidden = true;
       startBtn.disabled = true;
       cancelBtn.hidden = false;
-      await api.startExport({ format: fmt, filename: name.value.trim(), scale: Number(scale.value), crf: Number(crf.value), subtitles: subs.checked });
+      await api.startExport({
+        format: fmt, filename: name.value.trim(), scale: Number(scale.value), crf: Number(crf.value),
+        subtitles: subs.disabled ? 'off' : subs.value, transparent: transparent.checked, chapters: chapters.checked,
+        target, time: target && S.targets[target].still ? filmTime() : null,
+      });
       poll();
     } catch (e) {
       startBtn.disabled = false;

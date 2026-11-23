@@ -31,6 +31,30 @@ a large image, use an Image object (up to 1600 px) or crop the image first.
 Poppins and Inter are bundled; set another font in the film settings by choosing "Custom font file" and giving
 the path to a `.ttf` or `.otf` file. Characters missing from the chosen font are drawn with Inter.
 
+**Recording says the microphone is not available**
+Allow the microphone for the editor's page in the browser (the icon in the address bar). Browsers only allow
+recording on `localhost` or HTTPS pages: when you use the editor through an SSH tunnel, open it as
+`http://localhost:8765`, not by the remote machine's name. You can always upload a recording made elsewhere.
+
+**"No text-to-speech engine"**
+**Read aloud** needs a speech engine: `pip install "sciview[tts]"` (pyttsx3), or espeak-ng on Linux
+(`sudo apt install espeak-ng`). macOS and Windows have voices built in.
+
+**The assistant says it cannot reach the server**
+Start the model server first (`ollama serve`, or the server tab of LM Studio) and check the address in the
+assistant's settings: Ollama listens on `http://localhost:11434/v1`, LM Studio on `http://localhost:1234/v1`.
+If it answers that the model "may not support tool calls", choose a model with tool calling (Gemma 4, Qwen 3,
+Mistral Small, Llama 3.1 or newer). A model that cannot read images needs **Let the model see frames** turned
+off.
+
+**A transparent export has a black background**
+MP4 and GIF cannot be transparent. Use ProRes (`.mov`), WebM or PNG frames, and check that the program you
+place it in reads the alpha channel (QuickTime Player shows ProRes 4444 transparency as black, but Keynote,
+Final Cut, Premiere and DaVinci Resolve use it).
+
+**PowerPoint export says it needs python-pptx**
+Install the extra, `pip install "sciview[pptx]"`, and export again.
+
 **I edited the project file by hand and the editor did not notice**
 The editor keeps the film in memory. Use **Open** to load the file again.
 

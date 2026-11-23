@@ -326,6 +326,50 @@ def optics() -> sv.Project:
     return p
 
 
+def explainer() -> sv.Project:
+    """Three scenes with transitions, chapters and speaker notes: question, method, result."""
+    p = sv.Project(title="Why neutrons see water", duration=6.0)
+    q = p.scenes[0]
+    q.name = "Question"
+    q.notes = "Open with the question: metal hides water from X-rays, but not from neutrons."
+    p.add("title", text="Why neutrons see water", subtitle="Imaging with neutrons in three steps", start=0.3,
+          position=(960, 470), align="center", title_size=86)
+    p.add("caption", text="Water inside a metal part is invisible to X-rays.", start=1.6, end=5.6, style="box")
+
+    m = p.add_scene("Method", 9.0, transition="crossfade", transition_duration=1.0,
+                    notes="The beam crosses the sample; each neutron that gets through lands on the detector.")
+    cam = m.camera
+    cam.set("target", (-20, 0, 0)).set("fov", 28).set("offset", (0, -10))
+    cam.key("azimuth", 0, -128).key("azimuth", 9, -108, "in_out")
+    cam.key("distance", 0, 230).key("distance", 9, 190, "in_out")
+    cam.key("elevation", 0, 20).key("elevation", 9, 14, "in_out")
+    m.add("grid3d", name="Floor", center=(0, 0, -16), size=(220, 120), divisions=22)
+    m.add("box", name="Neutron source", center=(-75, 0, 0), size=(18, 18, 18), edge_color="gold", fill_color="gold",
+          label="source", label_position="below", label_color="gold", start=0.3)
+    m.add("cylinder", name="Sample", center=(0, 0, 0), radius=5, height=16, rings=3, lines=4, label="metal part",
+          label_color="cream", start=0.8)
+    scr = m.add("screen", name="Detector", center=(34, 0, 0), size=(22, 22), thickness=3, image="assets/radiograph.png",
+                colormap="gold", counts=40, label="detector", label_color="teal", start=1.2)
+    scr.key("buildup", 3.0, 0.0, "linear").key("buildup", 8.5, 1.0, "linear")
+    m.add("beam", name="Neutrons", source=(-66, 0, 0), target=(32, 0, 0), source_radius=2.5, target_radius=9,
+          rate=260, speed=34, streak=5, scatter_fraction=0.12, scatter_at=0.67, start=1.6)
+    m.add("caption", text="Neutrons cross the metal almost freely…", start=1.0, end=4.6, style="box")
+    m.add("caption", text="…but hydrogen in water scatters them, so water casts a shadow.", start=4.8, end=8.8,
+          style="box")
+
+    r = p.add_scene("Result", 7.0, transition="wipe_left", transition_duration=0.8,
+                    notes="The shadow is quantitative: transmission falls exponentially with water thickness.")
+    ax = r.add("axes", name="Transmission", position=(330, 190), size=(1000, 600), x_range=(0, 5), y_range=(0, 1.05),
+               x_label="water thickness (mm)", y_label="transmission", start=0.2)
+    r.add("curve", name="Beer-Lambert", axes=ax.id, expression="exp(-0.55*x)", color="teal", start=0.8)
+    mk = r.add("marker", name="Here", axes=ax.id, x=0.5, follow="exp(-0.55*x)", label="T = {y:.2f}", start=1.8)
+    mk.key("x", 2.0, 0.5).key("x", 5.0, 3.5, "in_out")
+    r.add("text", name="Law", text="T = e^{-\\Sigma d}", position=(1420, 300), size=46, color="gold", start=2.4)
+    r.add("caption", text="The darker the shadow, the more water: neutron images can be measured, not just seen.",
+          start=1.0, end=6.8, style="box")
+    return p
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     xr, ne, table = slice_images()
@@ -351,6 +395,9 @@ def main() -> None:
                   {"slice.png": slice_img, "sample.npy": sample_volume()})
     save_template(optics(), "optics", "Lenses and mirrors",
                   "A parallel beam focused by a lens and a concave mirror, with wavefronts.", 45, 10.0)
+    save_template(explainer(), "explainer", "Explainer in scenes",
+                  "Question, method and result as three scenes with transitions, chapters and speaker notes.", 15,
+                  17.0, {"radiograph.png": radiograph()})
     print("templates written to", OUT)
 
 

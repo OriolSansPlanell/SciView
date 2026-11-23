@@ -20,6 +20,11 @@ into a talk.
 
 * **A visual editor** that runs in your browser: add objects, drag them in the preview, keyframe any value,
   arrange clips on a timeline, export.
+* **From a sketch to a finished talk**: split the film into scenes with transitions and chapters, record
+  your narration in the browser and lay captions onto it, apply your group's theme and logo, and export for
+  slides, a 4K screen, a poster, social media, a web page or PowerPoint.
+* **An assistant that builds with you**: ask a language model running on your computer to add, arrange
+  and fix things; it checks its own work, flags the values it chose, and one Ctrl+Z takes it all back.
 * **The same film in Python**: generate scenes from your own data with NumPy and render them from scripts or
   notebooks.
 * **Made for science**: particle beams with scattering, detector images that build up count by count,
@@ -34,12 +39,14 @@ into a talk.
 ## Install
 
 ```bash
-pip install "sciview[math] @ git+https://github.com/OriolSansPlanell/SciView"
+pip install "sciview[math]"
 ```
 
-The `math` extra installs matplotlib, which renders the LaTeX equations; add `science` (`sciview[math,science]`)
-for isosurfaces, TIFF stacks, HDF5 volumes and SciPy fits. SciView needs Python 3.10 or newer
-and works on Windows, macOS and Linux.
+The `math` extra installs matplotlib, which renders the LaTeX equations. Other extras: `science` for
+isosurfaces, TIFF stacks, HDF5 volumes and SciPy fits; `pptx` for PowerPoint export; `tts` for reading
+captions aloud; `all` for everything but `tts` (`pip install "sciview[math,science,pptx]"`). The newest
+development version installs with `pip install "sciview[math] @ git+https://github.com/OriolSansPlanell/SciView"`.
+SciView needs Python 3.10 or newer and works on Windows, macOS and Linux.
 
 ## Make your first film
 
@@ -58,7 +65,11 @@ Your browser opens the editor. Pick a template or an empty film, then:
    (fade, slide, pop, draw on, type on).
 4. **Animate** any value with the diamond next to it: set a value at one time, move the playhead, change it
    again. Gold labels show what is animated; draw your own easing curve for any keyframe.
-5. **Export** an MP4 for slides, a WebM for the web, ProRes for video editors, a GIF or PNG frames.
+5. **Tell the story** in scenes (the strip above the timeline): each has its own objects, camera and clock,
+   and a transition into it. Press <kbd>R</kbd> to record narration while the film plays, then paste your
+   script to turn it into captions that follow your voice.
+6. **Export** with a preset (slides, conference 4K, poster still, square or vertical for social media,
+   transparent overlay, web page) or choose MP4, WebM, ProRes, GIF, PNG frames or PowerPoint yourself.
 
 Projects are saved as a readable `.sciview.json` file with an `assets` folder for your images and data.
 The editor keeps unsaved changes next to the file every 30 seconds and offers them back if it stops before
@@ -96,24 +107,29 @@ More in [examples/](examples/) and the [Python guide](docs/python-api.md).
 sciview edit film.sciview.json                 # open (or create) a film in the editor
 sciview new talk.sciview.json --template waves # start from a template
 sciview render film.sciview.json -o film.mp4   # render; --scale 2 for 4K, --start/--end for a part
+sciview render film.sciview.json --for vertical    # presets: slides, conference, poster, square, vertical ...
+sciview render film.sciview.json -o talk.pptx  # one slide per scene; also .html for a web page
+sciview render film.sciview.json --transparent -o overlay.mov  # ProRes 4444 with alpha
 sciview still film.sciview.json -t 4.5 --scale 2   # a 3840 px PNG of one moment, for papers and posters
 sciview subtitles film.sciview.json            # captions as an .srt file
-sciview check film.sciview.json                # missing files, broken references, bad expressions
-sciview mcp film.sciview.json                  # let an AI assistant edit the film (MCP server)
+sciview check film.sciview.json --frames       # problems, plus hard-to-read or overlapping text
+sciview theme film.sciview.json --apply light  # themes: dark, light, contrast or your .sciview-theme.json
+sciview mcp film.sciview.json                  # let an outside AI assistant edit the film (MCP server)
 ```
 
 ## What you can put in a film
 
-<p align="center"><img src="docs/images/templates.jpg" alt="Frames from the eight templates: imaging beamline, step-by-step analysis, tomography, scatter and thresholds, animated equations, lenses and mirrors, 3D structure, title card" width="900"></p>
+<p align="center"><img src="docs/images/templates.jpg" alt="Frames from the nine templates: imaging beamline, explainer in scenes, step-by-step analysis, tomography, scatter and thresholds, animated equations, lenses and mirrors, 3D structure, title card" width="900"></p>
 
 | | Objects |
 | --- | --- |
 | **3D scene** | box, cylinder, sphere, screen/detector with an image, particle beam with scattering, 3D arrow, floor grid, point cloud from a table, STL/OBJ model, 3D label, volume (slices, maximum-intensity projection, isosurface) from `.npy`, TIFF stacks or HDF5, molecule from PDB/XYZ (ball-and-stick, space-filling, ribbon), 3D scale bar |
-| **Text** | title, caption (also exported as subtitles), text with live counters and SI prefixes, LaTeX equation, legend |
+| **Text** | title, caption (plain, boxed, band, outline or shadow; also exported as subtitles), text with live counters and SI prefixes, LaTeX equation, legend |
 | **Charts** | axes (linear or log, animatable ranges), curve from an expression or data, scatter, bars, histogram, marker that follows a curve, threshold line, heatmap with colour bar, error bars, uncertainty band, fitted curve, spectrum with labelled peaks, 2D histogram, vector field, streamlines, matplotlib figure redrawn per frame (from Python) |
 | **Imaging** | sinogram recorded angle by angle, filtered back-projection that builds up the slice, scale bar from the pixel size, pixels that fly into a scatter plot or histogram bins |
 | **Optics** | thin lenses, flat and curved mirrors, beam splitters, rays traced through them, wavefronts |
 | **Shapes & media** | panel/card with numbered badge, rectangle, ellipse, arrow, image (PNG, 16-bit TIFF, NumPy arrays, with colormaps), group |
+| **Sound** | voice clips (recorded in the editor, uploaded, or read aloud by text to speech) with waveforms on the timeline, a soundtrack under the whole film |
 
 Curve expressions can use time: `sin(x - 2*t)` is a travelling wave. Any number can follow a column of a table
 over time (a **data track**), and any file field can play a series of files, one per step: a stack of
@@ -122,11 +138,16 @@ radiographs, the outputs of a simulation. The full list of properties is in the
 
 ## Let an AI assistant help
 
-`sciview mcp film.sciview.json` lets an AI assistant (Claude Desktop, a local model in LM Studio, any
-[MCP](https://modelcontextprotocol.io) client) read the film, add and animate objects and look at frames
-through a small set of checked tools. It never runs code, keeps away from locked objects and can be limited
-to a time window or a few objects. Pointed at the open editor, its changes appear live and Ctrl+Z takes
-them back. See [AI assistants](docs/agent.md).
+The editor's **Assistant** panel talks to a language model on your own computer (Ollama, LM Studio, a
+llama.cpp server, vLLM): "add a scene that zooms into the sample", "put the captions in boxes", "line up the
+three panels". It works through a small set of checked tools, never runs code and keeps away from locked
+objects. After each step SciView checks the frames for overlapping text and objects outside the picture and
+tells the model, which fixes its own mistakes; the values it chose itself are listed for you to check; and
+the whole request is one undo step. A benchmark of 42 tasks (`python -m sciview.agent.bench`) compares models.
+
+`sciview mcp film.sciview.json` offers the same tools to outside assistants (Claude Desktop, LM Studio's chat,
+any [MCP](https://modelcontextprotocol.io) client), limited to a time window, a scene or a few objects if you
+like. See [AI assistants](docs/agent.md).
 
 ## How it works
 

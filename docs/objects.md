@@ -436,8 +436,9 @@ Default enter effect: `fade`. Effects: `none`, `fade`, `slide_up`, `slide_down`,
 | `color` | colour | cream | yes |  |
 | `weight` | choice | regular |  | Options: `light`, `regular`, `medium`, `bold`. |
 | `max_width` | number (0..) | 1500 | yes | Wrap width in pixels (0 = no wrap) |
-| `background_color` | colour | navy | yes |  |
-| `background_opacity` | number (0..1) | 0 | yes |  |
+| `style` | choice | plain |  | plain, box (a panel behind the text), band (across the frame), outline or shadow: box, band and outline stay readable over busy pictures Options: `plain`, `box`, `band`, `outline`, `shadow`. |
+| `background_color` | colour | navy | yes | Colour of the box or band |
+| `background_opacity` | number (0..1) | 0 | yes | 0 with the box or band style means 0.8 |
 | `glow` | number (0..3) | 0 | yes |  |
 | `opacity` | number (0..1) | 1 | yes |  |
 
@@ -1300,6 +1301,26 @@ Default enter effect: `none`. Effects: `none`, `fade`, `slide_up`, `slide_down`,
 | `pivot3d` | x, y, z | (0, 0, 0) | yes | Point that 3D members rotate and scale about |
 | `opacity` | number (0..1) | 1 | yes |  |
 
+## Sound
+
+- [Voice clip](#voice) (`voice`): Narration or a sound effect: record it in the editor, upload a file, or read captions aloud.
+
+<a id="voice"></a>
+### Voice clip (`voice`)
+
+Narration or a sound effect: record it in the editor, upload a file, or read captions aloud.
+
+Default enter effect: `none`. Effects: `none`, `fade`, `slide_up`, `slide_down`, `slide_left`, `slide_right`, `pop`.
+
+| Property | Type | Default | Animatable | Notes |
+| --- | --- | --- | --- | --- |
+| `audio` | file | empty |  | WAV, MP3, M4A, OGG or a browser recording |
+| `volume` | number (0..4) | 1 |  |  |
+| `trim` | number (0..) | 0 |  | Seconds to skip at the beginning of the recording |
+| `fade_in` | number (0..10) | 0 |  |  |
+| `fade_out` | number (0..10) | 0 |  |  |
+| `script` | text (lines) | empty |  | What is said: used for captions and speaker notes |
+
 ## Camera (`camera`)
 
 There is one camera per film. It orbits its target point.
@@ -1324,7 +1345,7 @@ Stored under `settings` in the project file.
 | `width` | whole number (16..7680) | 1920 | yes | Pixels. Layout is in these units |
 | `height` | whole number (16..4320) | 1080 | yes |  |
 | `fps` | whole number (1..120) | 30 | yes |  |
-| `duration` | number (0.1..3600) | 10 | yes | Seconds |
+| `duration` | number (0.1..3600) | 10 | yes | Seconds. With several scenes this is their total; set the length of each scene instead |
 | `background` | colour | #03070e | yes | Edge colour |
 | `background2` | colour | #111a2c | yes | Centre (radial) or bottom (vertical) colour |
 | `background_style` | choice | radial |  | Options: `radial`, `vertical`, `solid`. |
@@ -1332,9 +1353,17 @@ Stored under `settings` in the project file.
 | `vignette` | number (0..1) | 0.35 | yes |  |
 | `bloom` | number (0..3) | 0.7 | yes | Strength of the glow |
 | `font` | font | Poppins |  | Poppins, Inter, or a path to a .ttf/.otf file |
+| `theme` | text | empty |  | Name of the theme last applied |
+| `logo` | file | empty |  | Shown on top of the film (PNG with transparency) |
+| `logo_position` | choice | bottom-right |  | Options: `top-left`, `top-right`, `bottom-left`, `bottom-right`. |
+| `logo_size` | number (8..1920) | 160 | yes | Width in pixels |
+| `logo_margin` | number (0..500) | 40 | yes |  |
+| `logo_opacity` | number (0..1) | 0.9 | yes |  |
+| `logo_scenes` | choice | all |  | Which scenes show the logo Options: `all`, `first`, `last`, `first_and_last`. |
 | `audio` | file | empty |  | Narration or music mixed into the export |
 | `audio_offset` | number | 0 | yes | Seconds into the film where the audio starts |
 | `audio_volume` | number (0..4) | 1 | yes |  |
+| `crop_x` | number (-1..) | -1 | yes | Horizontal centre of square and vertical exports, in pixels (-1 = the middle) |
 
 ## Default palette
 

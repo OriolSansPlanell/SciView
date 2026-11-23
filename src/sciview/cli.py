@@ -1,4 +1,4 @@
-"""Command line: ``sciview edit | render | still | new | check | templates | subtitles | mcp | info``."""
+"""Command line: ``sciview edit | render | still | new | check | theme | templates | subtitles | mcp | info``."""
 from __future__ import annotations
 
 import argparse
@@ -35,11 +35,19 @@ def cmd_render(a) -> int:
     proj = Project.load(a.project)
     for issue in proj.validate():
         print(f"  note: {issue}", file=sys.stderr)
-    out = a.output or str(Path(a.project).name.split(".")[0] + ".mp4")
+    from .export import TARGETS
+    stem = Path(a.project).name.split(".")[0]
+    ext = TARGETS[a.target]["ext"] if a.target else "mp4"
+    out = a.output or f"{stem}{'_' + a.target if a.target else ''}.{ext}"
+    if a.theme:
+        for note in proj.apply_theme(a.theme):
+            print(f"  theme: {note}", file=sys.stderr)
     print(f"Rendering {a.project} -> {out}", file=sys.stderr)
     t0 = time.time()
+    subs = a.subtitles if a.subtitles is not None else False
     path = export(proj, out, fps=a.fps, scale=a.scale, crf=a.crf, preset=a.preset, start=a.start, end=a.end,
-                  workers=a.workers, audio=not a.no_audio, subtitles=a.subtitles,
+                  workers=a.workers, audio=not a.no_audio, subtitles=subs, transparent=a.transparent,
+                  target=a.target, chapters=not a.no_chapters, scene=a.scene, time=a.time,
                   progress=None if a.quiet else _bar)
     if not a.quiet:
         sys.stderr.write("\n")
@@ -91,12 +99,36 @@ def cmd_check(a) -> int:
     from .model.project import Project
     proj = Project.load(a.project)
     issues = proj.validate()
+    if a.frames:
+        from . import checks
+        issues += [i["message"] for i in checks.layout_issues(proj) + checks.contrast_issues(proj)]
     print(proj)
     for i in issues:
         print(f"  - {i}")
     if not issues:
-        print("  no problems found")
+        print("  no problems found" + ("" if a.frames else " (add --frames to also check contrast and layout)"))
     return 1 if issues and a.strict else 0
+
+
+def cmd_theme(a) -> int:
+    from . import theme
+    from .model.project import Project
+    if a.list or not a.project:
+        for k, d in theme.builtin().items():
+            print(f"{k:10s} {d.get('name', k)}: {d.get('description', '')}")
+        return 0
+    proj = Project.load(a.project)
+    if a.save:
+        print(f"Wrote {proj.save_theme(a.save, a.name or '')}", file=sys.stderr)
+        return 0
+    if not a.apply:
+        print("give --apply THEME or --save FILE", file=sys.stderr)
+        return 2
+    for note in proj.apply_theme(a.apply, restyle=not a.keep_styles):
+        print(f"  note: {note}", file=sys.stderr)
+    proj.save()
+    print(f"Applied {proj.settings.get('theme') or a.apply} to {a.project}", file=sys.stderr)
+    return 0
 
 
 def cmd_subtitles(a) -> int:
@@ -115,6 +147,8 @@ def cmd_mcp(a) -> int:
         scope["time"] = [float(a.time[0]), float(a.time[1])]
     if a.ids:
         scope["ids"] = [x.strip() for x in a.ids.split(",") if x.strip()]
+    if a.scene:
+        scope["scene"] = a.scene
     if a.editor:
         backend = EditorBackend(a.editor, scope)
     elif a.project:
@@ -168,14 +202,26 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("render", help="render a project to a video, GIF or PNG frames")
     r.add_argument("project")
     r.add_argument("-o", "--output", help="output file (.mp4 .webm .mov .gif) or folder for PNG frames")
-    r.add_argument("--scale", type=float, default=1.0, help="resolution factor (0.5 = half size, 2 = 4K)")
+    r.add_argument("--scale", type=float, help="resolution factor (0.5 = half size, 2 = 4K); with --for, a factor "
+                                                 "of the preset's size")
     r.add_argument("--fps", type=float)
-    r.add_argument("--crf", type=int, default=18, help="quality, lower is sharper (default 18)")
+    r.add_argument("--crf", type=int, default=None, help="quality, lower is sharper (default 18, or the preset's)")
     r.add_argument("--preset", default="medium", help="x264 preset: veryfast ... slow")
     r.add_argument("--start", type=float, help="first second to render")
     r.add_argument("--end", type=float, help="last second to render")
     r.add_argument("--workers", type=int, help="parallel render processes (default: cores - 1)")
-    r.add_argument("--subtitles", action="store_true", help="also write captions as .srt")
+    r.add_argument("--for", dest="target", choices=["slides", "conference", "poster", "square", "vertical", "overlay",
+                                                     "web", "preview"],
+                   help="preset: slides (1080p MP4), conference (4K), poster (4K still), square / vertical (social, "
+                        "cropped), overlay (transparent ProRes), web (HTML page), preview (GIF)")
+    r.add_argument("--subtitles", nargs="?", const="file", choices=["off", "file", "soft", "embed"],
+                   help="captions: file (.srt/.vtt beside the video), soft (a track viewers can switch off, not "
+                        "drawn), embed (drawn and as a track)")
+    r.add_argument("--transparent", action="store_true", help="no background: ProRes 4444 .mov, .webm or PNG frames")
+    r.add_argument("--scene", help="render one scene on its own (id or name)")
+    r.add_argument("--time", type=float, help="for a still (.png output or --for poster): the moment to show")
+    r.add_argument("--theme", help="apply a theme first (dark, light, contrast or a .sciview-theme.json)")
+    r.add_argument("--no-chapters", action="store_true", help="no chapter markers from scenes")
     r.add_argument("--no-audio", action="store_true")
     r.add_argument("-q", "--quiet", action="store_true")
     r.set_defaults(func=cmd_render)
@@ -199,7 +245,18 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("check", help="look for problems in a project")
     c.add_argument("project")
     c.add_argument("--strict", action="store_true", help="exit with code 1 if there are problems")
+    c.add_argument("--frames", action="store_true",
+                   help="also look at frames: text that is hard to read, text that overlaps, objects outside the frame")
     c.set_defaults(func=cmd_check)
+
+    th = sub.add_parser("theme", help="list, apply or save themes (palette, look, font, logo, styles)")
+    th.add_argument("project", nargs="?")
+    th.add_argument("--apply", help="dark, light, contrast or a .sciview-theme.json")
+    th.add_argument("--save", help="write the project's look as a .sciview-theme.json")
+    th.add_argument("--name", help="name of the saved theme")
+    th.add_argument("--keep-styles", action="store_true", help="do not restyle the objects already in the film")
+    th.add_argument("--list", action="store_true", help="list the built-in themes")
+    th.set_defaults(func=cmd_theme)
 
     st = sub.add_parser("subtitles", help="export captions as an .srt subtitle file")
     st.add_argument("project")
@@ -211,6 +268,7 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--editor", help="drive a running editor instead, e.g. http://localhost:8765")
     m.add_argument("--time", type=float, nargs=2, metavar=("START", "END"), help="only change this time window")
     m.add_argument("--ids", help="only change these objects (comma-separated ids) and new ones")
+    m.add_argument("--scene", help="only change this scene (name or id)")
     m.add_argument("--no-save", action="store_true", help="file mode: do not save after each change")
     m.set_defaults(func=cmd_mcp)
 
@@ -232,6 +290,9 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except RuntimeError as exc:          # ExportError, ThemeError, AudioError, NarrationError ...
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":  # pragma: no cover

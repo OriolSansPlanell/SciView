@@ -110,9 +110,10 @@ def test_asset_changes_invalidate_the_cache(tmp_project):
 def test_cache_respects_its_memory_budget():
     p = static_scene()
     r = Renderer(p)
-    r.LAYER_BUDGET = 1                     # nothing fits: frames are still right, nothing is kept
+    sr = r.scene_renderer(p.scenes[0])
+    sr.LAYER_BUDGET = 1                    # nothing fits: frames are still right, nothing is kept
     a = r.frame(1.0, 0.5)
     b = r.frame(1.1, 0.5)
-    assert r._layer_bytes <= 1 and r.stats["hits"] == 0
+    assert sr._layer_bytes <= 1 and r.stats["hits"] == 0
     ref = Renderer(p, cache=False).frame(1.1, 0.5)
     assert np.abs(b.astype(int) - ref.astype(int)).max() <= 1 and a.shape == b.shape

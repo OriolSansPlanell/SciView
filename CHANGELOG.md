@@ -3,6 +3,65 @@
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [semantic versioning](https://semver.org/).
 
+## [0.4.0] - 2026-11-23
+
+Storytelling and production: scenes, narration, captions that follow your voice, themes, export for every
+destination, and an AI assistant panel in the editor.
+
+### Added
+- **Scenes**: a film is a list of scenes, each with its own objects, camera and clock, joined by transitions
+  (cut, crossfade, dip to the background, wipe and push in four directions, zoom through). A strip above the
+  timeline switches between them, adds, renames, reorders, duplicates and deletes them; playback crosses from
+  one scene into the next. Scenes carry speaker notes and can be chapters. Python: `film.add_scene(...)`,
+  `scene.add(...)`, `film.timeline()`, `film.chapters()`.
+- **Chapter markers** in MP4, WebM and ProRes exports, one per chapter scene.
+- **Narration**: voice clips (`voice`) with volume, trim and fades, recorded from the microphone in the editor
+  (<kbd>R</kbd>) while the film plays, or uploaded. The timeline shows their waveforms and snaps clips to the
+  phrases found in them. The preview plays the mixed sound in sync, and exports include the same mix.
+- **Captions from a script**: paste what you said and the captions are laid onto the phrases of the
+  recording, in order (or follow at reading speed). `sciview.narration.captions_from_script`.
+- **Text to speech** for draft narration: **Read aloud** on captions, with pyttsx3 (`sciview[tts]`), espeak-ng,
+  macOS `say` or the Windows voices, and engines from other packages through the `sciview.tts` entry point.
+- **Caption styles**: plain, box, band, outline and shadow.
+- **Readability and layout checks**: text whose contrast with what is behind it is below the WCAG ratio,
+  text that overlaps text, objects outside the frame. In the editor (**Check readability and layout**), in
+  `sciview check --frames` and in `sciview.checks`.
+- **Subtitle modes**: drawn only, drawn plus `.srt`/`.vtt` files, a subtitle track viewers can switch off
+  (not drawn), or both.
+- **Transparent export**: ProRes 4444 `.mov`, WebM with alpha and RGBA PNG frames, glow included.
+- **Export presets**: slides (1080p), conference (4K), poster still (4K PNG), square and vertical for social
+  media (cropped around **Crop centre**, with matching guides in the preview, plus a title-safe guide),
+  transparent overlay, web page and preview GIF. `sciview render --for ...`, `film.render(..., target=...)`;
+  with a preset, `scale` is a factor of the preset's size.
+- **Themes and brand kits**: `.sciview-theme.json` files with palette, background, font, logo and the look of
+  new titles, captions and labels. Built in: Dark, Light paper and High contrast. Apply them from the film
+  settings, `sciview theme --apply`, or `film.apply_theme(...)`; save your own with **Save as theme**,
+  `sciview theme --save` or `film.save_theme(...)`.
+- **Logo** on top of the film: corner, size, margin, opacity, and all scenes or only the first and last.
+- **Web page export** (`.html`): one self-contained page with the video, captions, a chapter menu and the
+  project with its files to download.
+- **PowerPoint export** (`.pptx`, needs `sciview[pptx]`): one slide per scene with its clip, set to play when
+  the slide appears, and the scene's notes, scripts or captions as speaker notes.
+- **Assistant panel** in the editor: a chat with a language model served on your computer by Ollama,
+  LM Studio, llama.cpp, vLLM or any OpenAI-compatible server. It works through the checked tools, limited to
+  the whole film, the current scene or the selection; after each round SciView checks the film and the frames
+  and tells the model what to fix; changes show live; values the model chose itself are listed for review;
+  each request is one undo step.
+- **Assistant benchmark**: 42 tasks checked automatically, `python -m sciview.agent.bench --model ...`.
+- New assistant tools: `add_scene`, `set_scene`, `align`, `check_frames`, and a scene argument for
+  `add_object` and `render_frame`. `sciview mcp --scene` limits an outside assistant to one scene.
+- Template **Explainer in scenes**: question, method and result as three scenes with transitions and notes.
+- `pptx` and `tts` extras.
+
+### Changed
+- Times of objects and keyframes count from the start of their scene. Films with one scene are saved exactly
+  as in 0.3, and 0.3 files open as one scene.
+- The film's length is the sum of its scenes minus the transition overlaps; set each scene's length in its
+  own settings.
+- The CLI reports export, theme and sound errors as short messages instead of tracebacks.
+- The renderer draws each scene on its own and blends them during transitions; cached layers are kept per
+  scene.
+
 ## [0.3.0] - 2026-11-22
 
 Science content: volumes, tomography, molecules, optics, uncertainty and fits, data that drives the film,

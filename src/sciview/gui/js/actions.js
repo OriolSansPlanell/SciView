@@ -2,7 +2,7 @@
 // duplicate, delete, copy and paste. Shared by the inspector, the preview and the shortcuts.
 import {
   S, commit, objById, schemaOf, valueAt, setValue, setKey, select, isGroup, descendants, ancestors,
-  uniqueId, span, duration, fps,
+  uniqueId, span, duration, fps, currentScene,
 } from './state.js';
 import { dragDelta, drag3dProps, scale2 } from './geom.js';
 import { toast } from './ui.js';
@@ -266,6 +266,7 @@ function insertCopies(list, { dt = 0, afterId = null, rename = true } = {}) {
   const copies = list.map((o) => {
     const c = JSON.parse(JSON.stringify(o));
     c.id = map[o.id];
+    c.scene = currentScene().id;                 // pasted into the scene in view
     if (rename && names.has(c.name)) c.name = `${c.name} copy`;
     if (c.parent && map[c.parent]) c.parent = map[c.parent];
     else if (c.parent && !isGroup(objById(c.parent))) c.parent = null;

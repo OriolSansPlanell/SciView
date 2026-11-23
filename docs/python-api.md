@@ -234,10 +234,118 @@ film.add("text", text="{value:si:Pa}", value=2.5e5)                            #
 `{value:si:m}` writes a number with an SI prefix (2.5 mm, 12 nm), `{value:.2si:A}` sets the digits, and
 `{t:.1f}` shows the film time. In Python, `sciview.engine.units.si(0.0025, "m")` gives the same text.
 
+## Scenes
+
+A film is a list of scenes played one after the other. Each scene has its own objects, its own camera and
+its own clock: times inside a scene count from its start.
+
+```python
+film = sv.Project(duration=6)                          # the first scene, 6 s long
+film.add("title", text="Why neutrons see water")       # goes into the current scene
+
+method = film.add_scene("Method", 8, transition="crossfade", transition_duration=1.0,
+                        notes="Explain the beamline")
+method.add("box", center=(-60, 0, 0), size=(14, 14, 14))   # added to this scene
+method.camera.key("azimuth", 0, -130).key("azimuth", 8, -100)
+
+result = film.add_scene("Result", 7, transition="wipe_left")
+film.current_scene = "Method"                          # film.add(...) now adds there again
+```
+
+* `add_scene(name, duration, transition=..., transition_duration=..., after=..., chapter=True, notes="")`
+  adds a scene after the last one (or after `after`) and makes it the current scene. Its camera starts as
+  the previous scene's camera ended.
+* Transitions: `cut`, `crossfade`, `dip` (through the background), `wipe_left`, `wipe_right`, `wipe_up`,
+  `wipe_down`, `push_left`, `push_right`, `push_up`, `push_down`, `zoom`. A transition overlaps the end of
+  the previous scene, so `film.duration` is the sum of the scenes minus the overlaps.
+* `film.scenes`, `film.get_scene(name_or_id)`, `film.remove_scene(...)`, `film.move_scene(scene, index)`.
+* `film.timeline()` gives `(scene, start, end)` in film time; `film.scene_start(scene)`,
+  `film.film_time(obj, t)` and `film.scenes_at(t)` convert between scene time and film time.
+* `film.chapters()` lists `(start, end, title)` of the scenes marked as chapters; `film.captions()` lists every
+  caption in film time.
+* `scene.frame(t)` renders a scene on its own at its own time; `film.frame(t)` renders the film, transitions
+  included.
+
+Films with one scene are saved exactly as before scenes existed, and older files load as one scene.
+
+## Sound and narration
+
+```python
+film.set("audio", "assets/music.mp3")                  # under the whole film
+film.set("audio_volume", 0.4)
+voice = method.add("voice", audio="assets/take1.wav", start=0.5, fade_out=0.3,
+                   script="The beam crosses the sample.\nWater scatters it.")
+```
+
+A **voice** clip belongs to a scene and plays from its start (`trim` skips the beginning of the file,
+`volume`, `fade_in`, `fade_out`). The `script` is what it says; it becomes speaker notes in PowerPoint.
+
+```python
+from sciview import narration, audio
+
+caps = narration.captions_from_script(film, voice.props["script"], voice=voice, style="box")
+audio.speech_segments("assets/take1.wav")   # [(start, end), ...] of the phrases, in seconds
+pcm = audio.mix(film)                       # the film's sound as a (samples, 2) float array at 48 kHz
+```
+
+`captions_from_script` splits the text into lines (one caption per line, long lines split at the ends of
+sentences) and lays them onto the phrases found in the recording, in order. Without a voice clip, captions
+follow each other at reading speed from `start`.
+
+Text to speech, for drafts: `narration.read_aloud(film)` makes a voice clip for every caption with the first
+engine available (pyttsx3 with `pip install "sciview[tts]"`, espeak-ng on Linux, `say` on macOS, the Windows
+voices). `narration.engines()` lists them. Other engines plug in through the `sciview.tts` entry point
+group, or at run time:
+
+```python
+def speak(text, path, voice=None, rate=None):
+    ...                                     # write a WAV file to path
+    return path
+
+narration.register_engine("my-tts", speak)
+narration.read_aloud(film, engine="my-tts")
+```
+
+## Captions, themes and logos
+
+```python
+film.add("caption", text="Water casts a shadow.", style="band", background_opacity=0.6)
+```
+
+Caption styles: `plain`, `box`, `band`, `outline`, `shadow`.
+
+```python
+film.apply_theme("contrast")                 # "dark", "light", "contrast" or a .sciview-theme.json
+film.apply_theme("lab.sciview-theme.json", restyle=False)   # keep the existing objects' look
+film.set("logo", "assets/institute.png")
+film.set("logo_position", "top-right")       # also logo_size, logo_margin, logo_opacity
+film.set("logo_scenes", "first_and_last")    # all, first, last, first_and_last
+film.save_theme("lab.sciview-theme.json", name="Our lab")
+```
+
+A theme sets the palette, background, font and the look of new titles, captions and labels
+(`film.styles`, applied by `film.add`). Values you give to `add` win over the theme's. `restyle=True`
+(the default) also restyles objects already in the film, except locked ones. Saved themes copy their logo
+next to the theme file; `sciview.theme.embed_files` puts it inside the file instead.
+
+## Checking frames
+
+```python
+from sciview import checks
+
+checks.contrast_issues(film)   # text whose contrast with what is behind it is below 4.5 (3 for large text)
+checks.layout_issues(film)     # text overlapping text, objects outside the frame
+checks.frame_issues(film)      # both
+```
+
+Each issue is a dict with the object's `id`, a `message` and, for contrast, the measured `ratio`. The checks
+look at a few frames of every scene. From the command line: `sciview check film.sciview.json --frames`.
+
 ## Letting an AI assistant help
 
-`sciview mcp film.sciview.json` lets an AI assistant build and edit the film with a small set of checked tools;
-see [AI assistants](agent.md). The same tools are available in Python:
+The editor's assistant panel, and `sciview mcp film.sciview.json` for outside assistants, let a language model
+build and edit the film with a small set of checked tools; see [AI assistants](agent.md). The same tools are
+available in Python:
 
 ```python
 from sciview.agent import FilmTools
@@ -258,7 +366,21 @@ frame = film.frame(6.5, scale=0.5)            # NumPy array, e.g. to show in a n
 
 In Jupyter, `PIL.Image.fromarray(film.frame(t, 0.5))` shows a frame inline. `render` accepts `fps`, `scale`,
 `crf` (quality, lower is sharper), `preset`, `start`, `end`, `workers`, `audio`, `subtitles` and a
-`progress(done, total, eta)` callback.
+`progress(done, total, eta)` callback, and:
+
+```python
+film.render("phone.mp4", target="vertical")               # presets: slides, conference, poster, square,
+film.render("poster.png", target="poster", time=12.5)     #   vertical, overlay, web, preview
+film.render("overlay.mov", transparent=True)              # ProRes 4444 with alpha (.webm, PNG frames too)
+film.render("film.mp4", subtitles="soft")                 # off, file, soft or embed
+film.render("results.mp4", scene="Result")                # one scene on its own
+film.render("film.html")                                  # web page with player, captions, chapters
+film.render("talk.pptx")                                  # one slide per scene (sciview[pptx])
+frame = film.renderer().frame(6.5, 0.5, alpha=True)       # RGBA array
+```
+
+`chapters=False` leaves out the chapter markers that scenes add to video files. `crop=(x, y, w, h)` cuts any
+rectangle of the frame (in design pixels). `sciview.export.TARGETS` describes the presets.
 
 ## Reading and changing existing films
 

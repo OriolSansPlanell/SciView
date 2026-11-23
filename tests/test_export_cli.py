@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 
@@ -81,3 +82,29 @@ def test_cli_errors_are_friendly(tmp_path, capsys):
 def test_module_entry_point():
     out = subprocess.run([sys.executable, "-m", "sciview", "--version"], capture_output=True, text=True)
     assert out.returncode == 0 and sv.__version__ in out.stdout
+
+
+def test_cli_presets_scenes_themes_and_frame_checks(tmp_path, has_ffmpeg, capsys):
+    f = tmp_path / "talk.sciview.json"
+    assert main(["new", str(f), "--template", "explainer"]) == 0
+    p = sv.load(f)
+    assert len(p.scenes) == 3
+    assert main(["render", str(f), "--for", "poster", "--time", "6", "--scale", "0.1", "-o", str(tmp_path / "p")]) == 0
+    assert (tmp_path / "p.png").exists()
+    assert main(["render", str(f), "--for", "vertical", "--scene", "Result", "--scale", "0.1", "--workers", "1",
+                 "-q", "-o", str(tmp_path / "v.mp4")]) == 0
+    assert re.search(r"Video: .*?, 108x192", probe(tmp_path / "v.mp4"))
+    assert main(["render", str(f), "--transparent", "--scale", "0.1", "--end", "0.2", "--workers", "1", "-q",
+                 "-o", str(tmp_path / "frames")]) == 0
+    assert any((tmp_path / "frames").glob("*.png"))
+    assert main(["render", str(f), "-o", str(tmp_path / "x.mp4"), "--transparent"]) == 1
+    capsys.readouterr()
+    assert main(["theme", "--list"]) == 0
+    assert "contrast" in capsys.readouterr().out
+    assert main(["theme", str(f), "--apply", "light"]) == 0
+    assert sv.load(f).settings["theme"] == "Light paper"
+    assert main(["theme", str(f), "--save", str(tmp_path / "kit"), "--name", "Lab"]) == 0
+    assert json.loads((tmp_path / "kit.sciview-theme.json").read_text())["name"] == "Lab"
+    assert main(["check", str(f), "--frames"]) == 0
+    assert main(["theme", str(f), "--apply", str(tmp_path / "nope.json")]) == 2
+    assert "nope.json" in capsys.readouterr().err

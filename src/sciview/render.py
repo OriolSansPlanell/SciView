@@ -85,15 +85,17 @@ class Item:
     depth: float = 0.0
 
 
-class Renderer:
-    """Renders frames of a project. Keeps caches (text, images, particles, layers) between frames."""
+class SceneRenderer:
+    """Renders one scene (through a :class:`~sciview.model.scene.SceneView`). Keeps caches between frames."""
 
-    LAYER_BUDGET = 256 * 1024 * 1024   # bytes of cached layers per renderer
+    LAYER_BUDGET = 192 * 1024 * 1024   # bytes of cached layers per scene
 
-    def __init__(self, project: Project, base_dir=None, cache: bool = True):
+    def __init__(self, project, assets: AssetStore, cache: bool = True):
         self.project = project
-        self.assets = AssetStore(base_dir or project.base_dir)
+        self.assets = assets
         self.cache_enabled = cache
+        self.hide_captions = False          # soft subtitles: captions go in a subtitle track instead
+        self.hide_ids: frozenset = frozenset()   # objects left out (contrast checks)
         self._bg: dict[tuple, np.ndarray] = {}
         self._layers: OrderedDict[tuple, dict] = OrderedDict()
         self._layer_bytes = 0
@@ -215,16 +217,24 @@ class Renderer:
         return True
 
     # ------------------------------------------------------------------ frame
-    def frame(self, t: float, scale: float = 1.0, info: FrameInfo | None = None) -> np.ndarray:
+    def frame(self, t: float, scale: float = 1.0, info: FrameInfo | None = None, alpha: bool = False,
+              clip: tuple[float, float, float, float] | None = None) -> np.ndarray:
+        """The scene at its own time ``t``: uint8 RGB, or RGBA with straight alpha when ``alpha``.
+
+        ``clip`` (x0, y0, x1, y1 in design pixels) limits drawing to a region (for cropped exports).
+        """
         t0 = time.perf_counter()
         proj = self.project
-        self.assets.base_dir = proj.base_dir
         W, H = out_size(proj, scale)
         s = W / proj.size[0]
         cam = proj.camera_at(t, W, H, s, self.assets)
         cam_animated = bool(proj.camera.keys) or bool(proj.camera.tracks)
         ctx = RenderContext(proj, self.assets, t, s, W, H, cam)
-        cv = Canvas(W, H, s, self.background(W, H, s, ctx))
+        cv = Canvas(W, H, s, layer=True) if alpha else Canvas(W, H, s, self.background(W, H, s, ctx))
+        clip_px = None
+        if clip is not None:
+            clip_px = tuple(float(c) * s for c in clip)
+            cv.push_clip(*clip_px)
         dur = proj.duration
         gx = self._group_xforms(t, ctx)
         cam_key = (tuple(np.round(cam.eye, 5)), tuple(np.round(cam.target, 5)), round(cam.fov, 4),
@@ -233,7 +243,7 @@ class Renderer:
         items3d: list[Item] = []
         items2d: list[Item] = []
         for obj in proj.objects:
-            if obj.IS_GROUP:
+            if obj.IS_GROUP or (self.hide_captions and obj.TYPE == "caption") or obj.id in self.hide_ids:
                 continue
             xf = IDENTITY
             if obj.parent:
@@ -278,7 +288,7 @@ class Renderer:
         boxes: list[dict] = []
         cached_objects = 0
         i = 0
-        palette_key = (tuple(sorted(proj.palette.items())), ctx.font, W, H, round(s, 6))
+        palette_key = (tuple(sorted(proj.palette.items())), ctx.font, W, H, round(s, 6), clip_px)
         while i < len(order):
             if not order[i].static:
                 self._draw_item(cv, ctx, cam, order[i], boxes)
@@ -294,6 +304,8 @@ class Renderer:
                 self.stats["misses"] += 1
                 t_draw = time.perf_counter()
                 layer_cv = Canvas(W, H, s, layer=True)
+                if clip_px is not None:
+                    layer_cv.push_clip(*clip_px)
                 run_boxes: list[dict] = []
                 n_warn = len(ctx.issues)
                 for it in run:
@@ -339,13 +351,16 @@ class Renderer:
         boxes = [{"id": k, "x0": v[0], "y0": v[1], "x1": v[2], "y1": v[3], "group": True}
                  for k, v in group_boxes.items()] + boxes
 
-        img = cv.finish(float(proj.settings["bloom"]), float(proj.settings["vignette"]),
-                        ctx.color(proj.settings["background"]) * 0.5)
+        if alpha:
+            img = cv.finish_rgba(float(proj.settings["bloom"]))
+        else:
+            img = cv.finish(float(proj.settings["bloom"]), float(proj.settings["vignette"]),
+                            ctx.color(proj.settings["background"]) * 0.5)
         if info is not None:
-            info.boxes = boxes
-            info.warnings = ctx.warnings
-            info.issues = ctx.issues
-            info.cached = cached_objects
+            info.boxes.extend(boxes)
+            info.warnings.extend(w for w in ctx.warnings if w not in info.warnings)
+            info.issues.extend(ctx.issues)
+            info.cached += cached_objects
             info.ms = (time.perf_counter() - t0) * 1000
         return img
 
@@ -414,6 +429,156 @@ class Renderer:
         y += float(v.label_offset[1])
         ctx.draw_text(cv, v.label, x, y, v.label_size, v.label_color, align=al, valign=va,
                       opacity=v.opacity * st.opacity, glow=0.15)
+
+
+class Renderer:
+    """Renders frames of a film: the scene showing at each instant, two of them blended during a
+    transition, and the film-wide overlays (logo). Keeps one :class:`SceneRenderer` per scene."""
+
+    def __init__(self, project: Project, base_dir=None, cache: bool = True):
+        self.project = project
+        self.assets = AssetStore(base_dir or project.base_dir)
+        self._cache = cache
+        self.hide_captions = False
+        self.hide_ids: frozenset = frozenset()
+        self._scenes: dict[str, SceneRenderer] = {}
+
+    @property
+    def cache_enabled(self) -> bool:
+        return self._cache
+
+    @cache_enabled.setter
+    def cache_enabled(self, on: bool) -> None:
+        self._cache = bool(on)
+        for r in self._scenes.values():
+            r.cache_enabled = self._cache
+
+    @property
+    def stats(self) -> dict:
+        out = {"hits": 0, "misses": 0}
+        for r in self._scenes.values():
+            out["hits"] += r.stats["hits"]
+            out["misses"] += r.stats["misses"]
+        return out
+
+    def clear_cache(self) -> None:
+        for r in self._scenes.values():
+            r.clear_cache()
+
+    def scene_renderer(self, scene) -> SceneRenderer:
+        """The renderer of one scene, pointed at the project as it is now."""
+        proj = self.project
+        sc = proj.get_scene(scene)
+        r = self._scenes.get(sc.id)
+        if r is None:
+            r = self._scenes[sc.id] = SceneRenderer(None, self.assets, self._cache)
+            live = {x.id for x in proj.scenes}
+            for k in [k for k in self._scenes if k not in live]:
+                del self._scenes[k]
+        r.project = proj.view(sc)
+        r.hide_captions = self.hide_captions
+        r.hide_ids = self.hide_ids
+        return r
+
+    def frame(self, t: float, scale: float = 1.0, info: FrameInfo | None = None, *, alpha: bool = False,
+              crop: tuple[float, float, float, float] | None = None, scene=None) -> np.ndarray:
+        """The film at time ``t`` as uint8 RGB (or RGBA with ``alpha``: straight, not premultiplied).
+
+        ``scene`` renders that scene alone at its own time ``t``. ``crop`` (x, y, w, h in design
+        pixels) returns only that part of the frame, rendered sharply at ``scale``.
+        """
+        t0 = time.perf_counter()
+        proj = self.project
+        self.assets.base_dir = proj.base_dir
+        if info is None:
+            info = FrameInfo()
+        clip = None if crop is None else (crop[0], crop[1], crop[0] + crop[2], crop[1] + crop[3])
+        shots = [(proj.get_scene(scene), float(t))] if scene is not None else proj.scenes_at(float(t))
+        imgs = [self.scene_renderer(sc).frame(lt, scale, info, alpha, clip) for sc, lt in shots]
+        if len(imgs) == 1:
+            img = imgs[0]
+        else:
+            from .engine.transitions import blend
+            (_a, _ta), (b, tb) = shots
+            p = tb / max(proj.overlap(b), 1e-9)
+            fa, fb = (_premultiply(x) for x in imgs)
+            bg = None
+            if b.transition == "dip" and not alpha:
+                W, H = fa.shape[1], fa.shape[0]
+                ctx = RenderContext(proj.view(b), self.assets, tb, W / proj.size[0], W, H, None)
+                bg = self.scene_renderer(b).background(W, H, W / proj.size[0], ctx)
+            img = _unpremultiply(blend(fa, fb, b.transition, p, bg))
+        img = self._overlays(img, t, scale, alpha)
+        if crop is not None:
+            s = img.shape[1] / proj.size[0]
+            x0, y0 = int(round(crop[0] * s)), int(round(crop[1] * s))
+            w, h = int(round(crop[2] * s / 2)) * 2, int(round(crop[3] * s / 2)) * 2
+            img = np.ascontiguousarray(img[y0:y0 + h, x0:x0 + w])
+        info.ms = (time.perf_counter() - t0) * 1000
+        return img
+
+    def _overlays(self, img: np.ndarray, t: float, scale: float, alpha: bool) -> np.ndarray:
+        """Film-wide things drawn over every scene: the logo."""
+        proj = self.project
+        st = proj.settings
+        rel = st.get("logo")
+        if not rel:
+            return img
+        which = st.get("logo_scenes", "all")
+        if which != "all":
+            sc = proj.scenes_at(t)[-1][0]
+            first, last = sc is proj.scenes[0], sc is proj.scenes[-1]
+            if not ((which == "first" and first) or (which == "last" and last)
+                    or (which == "first_and_last" and (first or last))):
+                return img
+        try:
+            logo = self.assets.image(rel)
+        except Exception:
+            return img                                  # reported by problems()
+        import cv2
+        s = img.shape[1] / proj.size[0] if img.shape[1] else 1.0
+        w = max(1, int(round(float(st["logo_size"]) * s)))
+        lh, lw = logo.shape[:2]
+        h = max(1, int(round(w * lh / max(lw, 1))))
+        L = cv2.resize(logo.astype(np.float32), (w, h), interpolation=cv2.INTER_AREA)
+        if L.ndim == 2:
+            L = np.repeat(L[..., None], 3, axis=2)
+        rgb, a = (L[..., :3], L[..., 3:4]) if L.shape[2] == 4 else (L[..., :3], np.ones((h, w, 1), np.float32))
+        a = a * float(st["logo_opacity"])
+        m = float(st["logo_margin"]) * s
+        pos = st.get("logo_position", "bottom-right")
+        H, W = img.shape[:2]
+        x = int(round(m if "left" in pos else W - m - w))
+        y = int(round(m if "top" in pos else H - m - h))
+        x0, y0, x1, y1 = max(0, x), max(0, y), min(W, x + w), min(H, y + h)
+        if x1 <= x0 or y1 <= y0:
+            return img
+        rgb, a = rgb[y0 - y:y1 - y, x0 - x:x1 - x], a[y0 - y:y1 - y, x0 - x:x1 - x]
+        out = img.copy()
+        dst = out[y0:y1, x0:x1].astype(np.float32) / 255.0
+        if alpha:
+            da = dst[..., 3:4]
+            oa = a + da * (1 - a)
+            col = (rgb * a + dst[..., :3] * da * (1 - a)) / np.maximum(oa, 1e-6)
+            dst = np.concatenate([col, oa], axis=2)
+        else:
+            dst = rgb * a + dst * (1 - a)
+        out[y0:y1, x0:x1] = np.clip(dst * 255 + 0.5, 0, 255).astype(np.uint8)
+        return out
+
+
+def _premultiply(img: np.ndarray) -> np.ndarray:
+    f = img.astype(np.float32) / 255.0
+    if f.shape[2] == 4:
+        f[..., :3] *= f[..., 3:4]
+    return f
+
+
+def _unpremultiply(f: np.ndarray) -> np.ndarray:
+    if f.shape[2] == 4:
+        a = f[..., 3:4]
+        f = np.concatenate([np.where(a > 1e-6, f[..., :3] / np.maximum(a, 1e-6), 0.0), a], axis=2)
+    return np.clip(f * 255.0 + 0.5, 0, 255).astype(np.uint8)
 
 
 def _st_key(st) -> tuple:

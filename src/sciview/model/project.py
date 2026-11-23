@@ -15,7 +15,9 @@ from ..engine.assets import AssetStore, is_sequence
 from ..engine.camera import Camera
 from ..engine.color import DEFAULT_PALETTE, LIGHT_PALETTE
 from ..engine.text import FAMILIES, plain_text
+from ..engine.transitions import TRANSITIONS
 from .base import REGISTRY, Prop, SceneObject
+from .scene import Scene, SceneView, camera_json
 
 FORMAT_VERSION = "1.0"
 
@@ -25,7 +27,8 @@ SETTINGS_PROPS: list[Prop] = [
     Prop("width", "int", 1920, min=16, max=7680, group="Film", help="Pixels. Layout is in these units"),
     Prop("height", "int", 1080, min=16, max=4320, group="Film"),
     Prop("fps", "int", 30, label="Frames per second", min=1, max=120, group="Film"),
-    Prop("duration", "number", 10.0, min=0.1, max=3600, step=0.1, group="Film", help="Seconds"),
+    Prop("duration", "number", 10.0, min=0.1, max=3600, step=0.1, group="Film",
+         help="Seconds. With several scenes this is their total; set the length of each scene instead"),
     Prop("background", "color", "#03070e", group="Look", help="Edge colour"),
     Prop("background2", "color", "#111a2c", label="Background 2", group="Look",
          help="Centre (radial) or bottom (vertical) colour"),
@@ -34,9 +37,20 @@ SETTINGS_PROPS: list[Prop] = [
     Prop("vignette", "number", 0.35, min=0, max=1, step=0.05, group="Look"),
     Prop("bloom", "number", 0.7, min=0, max=3, step=0.05, group="Look", help="Strength of the glow"),
     Prop("font", "font", "Poppins", group="Look", help="Poppins, Inter, or a path to a .ttf/.otf file"),
+    Prop("theme", "text", "", group="Look", help="Name of the theme last applied"),
+    Prop("logo", "asset", "", accept="image", group="Logo", help="Shown on top of the film (PNG with transparency)"),
+    Prop("logo_position", "enum", "bottom-right", options=("top-left", "top-right", "bottom-left", "bottom-right"),
+         group="Logo"),
+    Prop("logo_size", "number", 160.0, min=8, max=1920, step=1, group="Logo", help="Width in pixels"),
+    Prop("logo_margin", "number", 40.0, min=0, max=500, step=1, group="Logo"),
+    Prop("logo_opacity", "number", 0.9, min=0, max=1, step=0.05, group="Logo"),
+    Prop("logo_scenes", "enum", "all", options=("all", "first", "last", "first_and_last"), group="Logo",
+         help="Which scenes show the logo"),
     Prop("audio", "asset", "", accept="audio", group="Sound", help="Narration or music mixed into the export"),
     Prop("audio_offset", "number", 0.0, step=0.1, group="Sound", help="Seconds into the film where the audio starts"),
     Prop("audio_volume", "number", 1.0, min=0, max=4, step=0.05, group="Sound"),
+    Prop("crop_x", "number", -1.0, min=-1, step=1, label="Crop centre", group="Export",
+         help="Horizontal centre of square and vertical exports, in pixels (-1 = the middle)"),
 ]
 SETTINGS_MAP = {p.name: p for p in SETTINGS_PROPS}
 
@@ -75,7 +89,9 @@ class Project:
     def __init__(self, path: str | os.PathLike | None = None, palette: dict | None = None, **settings):
         self.settings: dict[str, Any] = {p.name: copy.deepcopy(p.default) for p in SETTINGS_PROPS}
         self.palette: dict[str, str] = dict(palette or DEFAULT_PALETTE)
-        self.camera = CameraRig(id="camera", name="Camera")
+        self.scenes: list[Scene] = [Scene("scene1", "Scene 1", float(self.settings["duration"]), project=self)]
+        self._current = "scene1"
+        self.styles: dict[str, dict] = {}          # default properties per object type (from a theme)
         self.objects: list[SceneObject] = []
         self.path: Path | None = Path(path) if path else None
         self.warnings: list[str] = []
@@ -89,12 +105,21 @@ class Project:
         p = SETTINGS_MAP.get(name)
         if p is None:
             raise KeyError(f"unknown setting {name!r}. Settings: {', '.join(SETTINGS_MAP)}")
-        self.settings[name] = p.coerce(value)
+        value = p.coerce(value)
+        if name == "duration":
+            # one scene: its length; several: the last one takes up the difference
+            last = self.scenes[-1]
+            last.duration = max(0.1, last.duration + float(value) - self.duration)
+            value = self.duration
+        self.settings[name] = value
         return self
 
     @property
     def duration(self) -> float:
-        return float(self.settings["duration"])
+        """Length of the film: the scenes one after the other, minus where transitions overlap."""
+        total = self.scene_start(self.scenes[-1]) + self.scenes[-1].duration
+        self.settings["duration"] = total
+        return total
 
     @property
     def fps(self) -> int:
@@ -115,6 +140,164 @@ class Project:
                              stars=0.0, vignette=0.0, bloom=0.15)
         return self
 
+    def apply_theme(self, theme, restyle: bool = True) -> list[str]:
+        """Apply a theme: a built-in name (``"dark"``, ``"light"``, ``"contrast"``), a ``.sciview-theme.json``
+        file or a dict. Returns notes about anything it could not use. See :mod:`sciview.theme`."""
+        from .. import theme as th
+        return th.apply(self, theme, restyle)
+
+    def save_theme(self, path, name: str = "", description: str = "") -> Path:
+        """Save this film's look (palette, background, font, logo, styles) as a shareable theme file."""
+        from .. import theme as th
+        return th.save(self, path, name, description)
+
+    # ------------------------------------------------------------------ scenes
+    @property
+    def current_scene(self) -> Scene:
+        """The scene that :meth:`add` and :attr:`camera` refer to: the last one added, unless set."""
+        for sc in self.scenes:
+            if sc.id == self._current:
+                return sc
+        self._current = self.scenes[-1].id
+        return self.scenes[-1]
+
+    @current_scene.setter
+    def current_scene(self, scene: Scene | str) -> None:
+        self._current = self.get_scene(scene).id
+
+    @property
+    def camera(self) -> CameraRig:
+        """The camera of the current scene (with one scene: the camera)."""
+        return self.current_scene.camera
+
+    @camera.setter
+    def camera(self, rig: CameraRig) -> None:
+        self.current_scene.camera = rig
+
+    def get_scene(self, scene: Scene | str | int | None) -> Scene:
+        """A scene by object, id, name or position; None gives the current scene."""
+        if scene is None:
+            return self.current_scene
+        if isinstance(scene, Scene):
+            if scene not in self.scenes:
+                raise KeyError(f"scene {scene.name!r} is not part of this film")
+            return scene
+        if isinstance(scene, int):
+            return self.scenes[scene]
+        for sc in self.scenes:
+            if sc.id == scene:
+                return sc
+        for sc in self.scenes:
+            if sc.name == scene:
+                return sc
+        raise KeyError(f"no scene {scene!r}. Scenes: {', '.join(sc.name for sc in self.scenes)}")
+
+    def add_scene(self, name: str | None = None, duration: float = 10.0, *, transition: str = "cut",
+                  transition_duration: float = 1.0, after: Scene | str | None = None, chapter: bool = True,
+                  notes: str = "", id: str | None = None) -> Scene:
+        """Add a scene (after the last one, or after ``after``) and make it the current scene.
+
+        Its camera starts where the camera of the scene before it ends.
+        """
+        used = {sc.id for sc in self.scenes}
+        i = len(self.scenes) + 1
+        while f"scene{i}" in used:
+            i += 1
+        sid = id or f"scene{i}"
+        if sid in used:
+            raise ValueError(f"there is already a scene {sid!r}")
+        idx = len(self.scenes) if after is None else self.scenes.index(self.get_scene(after)) + 1
+        prev = self.scenes[idx - 1]
+        cam = CameraRig(id="camera", name="Camera")
+        for k in cam.props:
+            cam.props[k] = copy.deepcopy(prev.camera.value_at(k, prev.duration))
+        sc = Scene(sid, name or f"Scene {idx + 1}", duration, transition, transition_duration, chapter, notes,
+                   cam, project=self)
+        self.scenes.insert(idx, sc)
+        self._current = sc.id
+        return sc
+
+    def remove_scene(self, scene: Scene | str) -> None:
+        """Remove a scene and everything in it."""
+        sc = self.get_scene(scene)
+        if len(self.scenes) == 1:
+            raise ValueError("a film needs at least one scene")
+        self.objects = [o for o in self.objects if o.scene != sc.id]
+        self.scenes.remove(sc)
+        if self._current == sc.id:
+            self._current = self.scenes[-1].id
+
+    def move_scene(self, scene: Scene | str, index: int) -> None:
+        sc = self.get_scene(scene)
+        self.scenes.remove(sc)
+        self.scenes.insert(max(0, min(len(self.scenes), int(index))), sc)
+
+    def overlap(self, scene: Scene) -> float:
+        """Seconds that ``scene``'s transition overlaps the scene before it (0 for a cut or the first scene)."""
+        i = self.scenes.index(scene)
+        if i == 0 or scene.transition == "cut":
+            return 0.0
+        prev = self.scenes[i - 1]
+        return max(0.0, min(scene.transition_duration, prev.duration * 0.95, scene.duration * 0.95))
+
+    def scene_start(self, scene: Scene | str) -> float:
+        """Film time at which ``scene`` starts (its transition begins)."""
+        sc = self.get_scene(scene)
+        t = 0.0
+        for x in self.scenes:
+            if x is sc:
+                return t - self.overlap(x)
+            t += x.duration - self.overlap(x)
+        raise KeyError(sc.id)  # pragma: no cover
+
+    def timeline(self) -> list[tuple[Scene, float, float]]:
+        """(scene, start, end) in film time, in order."""
+        out = []
+        t = 0.0
+        for sc in self.scenes:
+            t -= self.overlap(sc)
+            out.append((sc, t, t + sc.duration))
+            t += sc.duration
+        return out
+
+    def scenes_at(self, t: float) -> list[tuple[Scene, float]]:
+        """The scene (or, during a transition, the two scenes) showing at film time ``t``, with their own
+        times. The last one listed is the one coming in."""
+        line = self.timeline()
+        out = [(sc, t - a) for sc, a, b in line if a <= t < b]
+        if not out:                                     # before the start or at the very end
+            sc, a, b = line[0] if t < line[0][1] else line[-1]
+            out = [(sc, min(max(t - a, 0.0), sc.duration))]
+        return out[-2:]
+
+    def scene_of(self, obj: SceneObject | str) -> Scene:
+        o = self.find(obj) if isinstance(obj, str) else obj
+        if o is None:
+            raise KeyError(obj)
+        return self.get_scene(o.scene) if o.scene else self.scenes[0]
+
+    def film_time(self, obj: SceneObject, t: float) -> float:
+        """Film time of the instant ``t`` of ``obj``'s scene."""
+        return self.scene_start(self.scene_of(obj)) + t
+
+    def view(self, scene: Scene | str | None = None) -> SceneView:
+        return SceneView(self, self.get_scene(scene))
+
+    def chapters(self) -> list[tuple[float, float, str]]:
+        """(start, end, title) of every scene marked as a chapter, in film time."""
+        line = self.timeline()
+        out = []
+        for sc, a, _b in line:
+            if not sc.chapter:
+                continue
+            # the chapter starts halfway through its transition and runs to the next chapter
+            start = a + self.overlap(sc) / 2
+            out.append([start, None, sc.name])
+        total = self.duration
+        for i, ch in enumerate(out):
+            ch[1] = out[i + 1][0] if i + 1 < len(out) else total
+        return [tuple(c) for c in out]
+
     # ------------------------------------------------------------------ objects
     def _unique_id(self, base: str) -> str:
         used = {o.id for o in self.objects} | {"camera"}
@@ -126,10 +309,12 @@ class Project:
 
     def add(self, type: str | SceneObject, name: str | None = None, *, start: float | None = None,
             end: float | None = None, enter: str | None = None, exit: str | None = None,
-            id: str | None = None, parent: str | SceneObject | None = None, **props) -> SceneObject:
+            id: str | None = None, parent: str | SceneObject | None = None, scene: Scene | str | None = None,
+            **props) -> SceneObject:
         """Add an object by type name (``"box"``, ``"curve"`` ...) or instance; returns it.
 
-        ``parent`` puts it in a group (the group object or its id).
+        ``parent`` puts it in a group (the group object or its id). ``scene`` chooses the scene
+        (default: the current scene, normally the last one added); times count from its start.
         """
         if isinstance(type, SceneObject):
             obj = type
@@ -140,6 +325,9 @@ class Project:
             if klass is None:
                 raise ValueError(f"unknown object type {type!r}. Types: {', '.join(sorted(REGISTRY))}")
             obj = klass(id=id or self._unique_id(type), name=name)
+            for k, v in self.styles.get(type, {}).items():
+                if k not in props:
+                    obj.set(k, v, strict=False)
             for k, v in props.items():
                 if isinstance(v, SceneObject):  # allow axes=<Axes object>
                     v = v.id
@@ -156,6 +344,11 @@ class Project:
             obj.exit_effect = exit
         if parent is not None:
             obj.parent = parent.id if isinstance(parent, SceneObject) else str(parent)
+            g = self.find(obj.parent)
+            if g is not None and scene is None:
+                scene = g.scene or self.scenes[0].id       # a group's members live in its scene
+        if scene is not None or not obj.scene or obj.scene not in {sc.id for sc in self.scenes}:
+            obj.scene = self.get_scene(scene).id
         self.objects.append(obj)
         return obj
 
@@ -227,9 +420,12 @@ class Project:
         members = [o if isinstance(o, SceneObject) else self[o] for o in objects]
         if not members:
             raise ValueError("group() needs at least one object")
+        scenes = {m.scene for m in members}
+        if len(scenes) > 1:
+            raise ValueError("a group can only hold objects of one scene")
         ids = {m.id for m in members}
         parents = {m.parent for m in members}
-        g = self.add("group", name=name or "Group", **props)
+        g = self.add("group", name=name or "Group", scene=scenes.pop(), **props)
         g.parent = parents.pop() if len(parents) == 1 else None
         if g.parent in ids:
             g.parent = None
@@ -253,8 +449,10 @@ class Project:
         return [o for o in self.objects if o.TYPE in types]
 
     # ------------------------------------------------------------------ camera
-    def camera_at(self, t: float, width: int, height: int, scale: float = 1.0, assets=None) -> Camera:
-        c = self.camera
+    def camera_at(self, t: float, width: int, height: int, scale: float = 1.0, assets=None,
+                  rig: CameraRig | None = None) -> Camera:
+        """The camera of the current scene (or ``rig``) at the scene time ``t``."""
+        c = rig or self.camera
 
         def val(name):
             if assets is not None and name in c.tracks:
@@ -293,12 +491,22 @@ class Project:
         return export(self, output, **options)
 
     # ------------------------------------------------------------------ captions
-    def captions(self) -> list[tuple[float, float, str]]:
+    def captions(self, scene: Scene | str | None = None) -> list[tuple[float, float, str]]:
+        """(start, end, text) of every caption in film time, in order; with ``scene``, that scene's
+        captions in its own time."""
         out = []
-        for o in self.objects:
-            if o.TYPE == "caption" and o.visible:
-                s, e = o.span(self.duration)
-                out.append((s, e, plain_text(o.get("text"))))
+        only = self.get_scene(scene) if scene is not None else None
+        for sc, a, _b in self.timeline():
+            if only is not None:
+                if sc is not only:
+                    continue
+                a = 0.0
+            for o in self.objects:
+                if o.TYPE == "caption" and o.visible and o.scene == sc.id:
+                    s, e = o.span(sc.duration)
+                    e = min(e, sc.duration)
+                    if e > s:
+                        out.append((a + s, a + e, plain_text(o.get("text"))))
         return sorted(out)
 
     def captions_srt(self) -> str:
@@ -372,7 +580,25 @@ class Project:
                     compile_expression(expr, names)
                 except ExpressionError as exc:
                     add(f"{o.name}: {exc}", o, p.name)
-        for o in [self.camera, *self.objects]:
+        scene_ids = {sc.id for sc in self.scenes}
+        for o in self.objects:
+            if o.scene not in scene_ids:
+                add(f"{o.name}: its scene {o.scene!r} does not exist", o, None)
+                continue
+            if o.parent and (g := self.find(o.parent)) is not None and g.scene != o.scene:
+                add(f"{o.name}: it is in another scene than its group {g.name}", o, "parent")
+            for p in o.all_props():
+                ref = o.props.get(p.name)
+                if p.kind == "ref" and ref and (r := self.find(ref)) is not None and r.scene != o.scene:
+                    add(f"{o.name}: {p.label} points to {r.name}, which is in another scene", o, p.name)
+            dur = self.get_scene(o.scene).duration
+            if o.start >= dur:
+                add(f"{o.name}: starts at {o.start:g} s, after its scene ends ({dur:g} s)", o, None)
+        for sc in self.scenes[1:]:
+            if sc.transition != "cut" and self.overlap(sc) < sc.transition_duration - 1e-6:
+                add(f"scene {sc.name}: the {sc.transition} is longer than a scene it joins; it is shortened "
+                    f"to {self.overlap(sc):.2g} s", None, None)
+        for o in [*(sc.camera for sc in self.scenes), *self.objects]:
             for name, tr in o.tracks.items():
                 label = o.prop_map()[name].label if name in o.prop_map() else name
                 if not tr.get("data"):
@@ -396,14 +622,27 @@ class Project:
 
     # ------------------------------------------------------------------ JSON
     def to_json(self) -> dict:
-        return {
+        self.settings["duration"] = self.duration               # the scenes' total
+        one = len(self.scenes) == 1
+        objects = []
+        for o in self.objects:
+            d = o.to_json()
+            if one:
+                d.pop("scene", None)                          # single-scene files read like before scenes
+            objects.append(d)
+        out = {
             "sciview": FORMAT_VERSION,
             "settings": dict(self.settings),
             "palette": dict(self.palette),
-            "camera": {"props": dict(self.camera.props), "keys": copy.deepcopy(self.camera.keys),
-                       **({"tracks": copy.deepcopy(self.camera.tracks)} if self.camera.tracks else {})},
-            "objects": [o.to_json() for o in self.objects],
+            "camera": camera_json(self.scenes[0].camera),       # the first scene's camera
+            "objects": objects,
         }
+        if self.styles:
+            out["styles"] = copy.deepcopy(self.styles)
+        first = self.scenes[0]
+        if not one or first.name != "Scene 1" or first.notes or not first.chapter or first.id != "scene1":
+            out["scenes"] = [sc.to_json(with_camera=i > 0) for i, sc in enumerate(self.scenes)]
+        return out
 
     @classmethod
     def from_json(cls, data: dict, path: str | os.PathLike | None = None) -> Project:
@@ -420,9 +659,25 @@ class Project:
                 proj.warnings.append(f"ignored unknown setting {k!r}")
         if data.get("palette"):
             proj.palette = {str(k).lower(): str(v) for k, v in data["palette"].items()}
+        if isinstance(data.get("styles"), dict):
+            proj.styles = {k: dict(v) for k, v in data["styles"].items() if isinstance(v, dict) and k in REGISTRY}
         cam = data.get("camera") or {}
-        proj.camera = CameraRig(id="camera", name="Camera", props=cam.get("props"), keys=cam.get("keys"),
-                                tracks=cam.get("tracks"))
+        first_cam = CameraRig(id="camera", name="Camera", props=cam.get("props"), keys=cam.get("keys"),
+                              tracks=cam.get("tracks"))
+        scenes = data.get("scenes")
+        if isinstance(scenes, list) and scenes:
+            proj.scenes = []
+            for i, sd in enumerate(scenes):
+                sc = Scene.from_json(sd if isinstance(sd, dict) else {}, proj, first_cam if i == 0 else None)
+                if any(x.id == sc.id for x in proj.scenes):
+                    proj.warnings.append(f"two scenes are called {sc.id!r}; the second was renamed")
+                    sc.id = f"{sc.id}_{i + 1}"
+                proj.scenes.append(sc)
+        else:                                            # files from before scenes: one scene, the whole film
+            proj.scenes = [Scene("scene1", "Scene 1", float(proj.settings["duration"]), camera=first_cam,
+                                 project=proj)]
+        proj._current = proj.scenes[-1].id
+        scene_ids = {sc.id for sc in proj.scenes}
         seen: set[str] = set()
         for od in data.get("objects") or []:
             try:
@@ -433,7 +688,13 @@ class Project:
             if obj.id in seen or obj.id == "camera":
                 obj.id = proj._unique_id(obj.TYPE)
             seen.add(obj.id)
+            if not obj.scene:
+                obj.scene = proj.scenes[0].id
+            elif obj.scene not in scene_ids:
+                proj.warnings.append(f"{obj.name}: unknown scene {obj.scene!r}; moved to the first scene")
+                obj.scene = proj.scenes[0].id
             proj.objects.append(obj)
+        proj.settings["duration"] = proj.duration            # the scenes' total
         return proj
 
     def add_figure(self, func, name: str | None = None, **props) -> SceneObject:
@@ -509,7 +770,7 @@ class Project:
 
 def all_schemas() -> dict:
     """Everything the editor needs to build its library, inspector and settings dialog."""
-    order = ["3D scene", "Text", "Charts", "Imaging", "Optics", "Shapes & media"]
+    order = ["3D scene", "Text", "Charts", "Imaging", "Optics", "Shapes & media", "Sound"]
     types = sorted(REGISTRY.values(), key=lambda c: (order.index(c.CATEGORY) if c.CATEGORY in order else 9))
     return {
         "types": [c.schema() for c in types],
@@ -520,6 +781,7 @@ def all_schemas() -> dict:
         "palette": dict(DEFAULT_PALETTE),
         "light_palette": dict(LIGHT_PALETTE),
         "version": FORMAT_VERSION,
+        "transitions": dict(TRANSITIONS),
     }
 
 
@@ -528,5 +790,6 @@ def iter_assets(project: Project) -> Iterable[str]:
         for p in o.all_props():
             if p.kind == "asset" and o.props.get(p.name):
                 yield o.props[p.name]
-    if project.settings.get("audio"):
-        yield project.settings["audio"]
+    for key in ("audio", "logo"):
+        if project.settings.get(key):
+            yield project.settings[key]

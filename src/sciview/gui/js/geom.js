@@ -34,7 +34,7 @@ export function rotation(rx, ry, rz) {
 
 /** The scene camera at time t, in design pixels. */
 export function camera(t = S.time) {
-  const c = S.project.camera;
+  const c = objById('camera');
   const target = valueAt(c, 'target', t).map(Number);
   const dist = Math.max(Number(valueAt(c, 'distance', t)), 1e-6);
   const az = (Number(valueAt(c, 'azimuth', t)) * Math.PI) / 180;

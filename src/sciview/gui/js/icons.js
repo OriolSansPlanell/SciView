@@ -85,6 +85,17 @@ const P = {
   distH: '<path d="M3 4v16M21 4v16"/><rect x="9.5" y="8" width="5" height="8" rx="1"/>',
   distV: '<path d="M4 3h16M4 21h16"/><rect x="8" y="9.5" width="8" height="5" rx="1"/>',
   ease: '<path d="M4 20C10 20 14 4 20 4"/><circle cx="4" cy="20" r="1.3"/><circle cx="20" cy="4" r="1.3"/>',
+  scene: '<rect x="3" y="6" width="13" height="12" rx="1.5"/><path d="M16 9.5l5-2.5v10l-5-2.5"/>',
+  cut: '<path d="M12 4v16"/><path d="M5 8h4M5 16h4M15 8h4M15 16h4" opacity=".6"/>',
+  crossfade: '<path d="M3 18 21 6"/><path d="M3 6l18 12" opacity=".55"/>',
+  wipe: '<rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M12 5v14"/><path d="M14.5 9.5 17 12l-2.5 2.5"/>',
+  push: '<rect x="2" y="6" width="9" height="12" rx="1.5"/><rect x="13" y="6" width="9" height="12" rx="1.5" opacity=".6"/><path d="M9 12h7"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  voice: '<path d="M3 12h1.5M6 8v8M9 5v14M12 9v6M15 6v12M18 10v4M21 12h-1"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>',
+  spark: '<path d="M12 3.5 13.8 9l5.7 1.6-5.7 1.7L12 18l-1.8-5.7L4.5 10.6 10.2 9Z"/><path d="M18.5 3.5v3M17 5h3M5.5 17v3M4 18.5h3"/>',
+  send: '<path d="M4 12 20 4l-5 16-3.5-6.5Z"/><path d="M11.5 13.5 20 4"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
 };
 

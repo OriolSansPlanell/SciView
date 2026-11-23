@@ -95,6 +95,9 @@ class Title(Object2D):
         return (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
 
 
+CAPTION_STYLES = ("plain", "box", "band", "outline", "shadow")
+
+
 @register
 class Caption(Object2D):
     TYPE, LABEL, ICON, CATEGORY = "caption", "Caption", "caption", "Text"
@@ -108,17 +111,49 @@ class Caption(Object2D):
         Prop("color", "color", "cream", group=G_LOOK),
         Prop("weight", "enum", "regular", options=WEIGHTS, group=G_LOOK),
         Prop("max_width", "number", 1500, min=0, step=10, group=G_POS, help="Wrap width in pixels (0 = no wrap)"),
-        Prop("background_color", "color", "navy", group=G_LOOK),
-        Prop("background_opacity", "number", 0.0, min=0, max=1, step=0.01, group=G_LOOK),
+        Prop("style", "enum", "plain", options=CAPTION_STYLES, group=G_LOOK,
+             help="plain, box (a panel behind the text), band (across the frame), outline or shadow: "
+                  "box, band and outline stay readable over busy pictures"),
+        Prop("background_color", "color", "navy", group=G_LOOK, help="Colour of the box or band"),
+        Prop("background_opacity", "number", 0.0, min=0, max=1, step=0.01, group=G_LOOK,
+             help="0 with the box or band style means 0.8"),
         Prop("glow", "number", 0.0, min=0, max=3, step=0.05, group=G_LOOK),
     ]
 
+    def backing(self, v) -> tuple[str, float] | None:
+        """The panel the text sits on, (colour, opacity), if its style has one."""
+        style = v.get("style", "plain")
+        op = float(v.background_opacity)
+        if style in ("box", "band"):
+            return v.background_color, op if op > 0 else 0.8
+        return (v.background_color, op) if op > 0 else None
+
     def draw(self, cv, ctx, v, st):
         a = v.opacity * st.opacity
-        return ctx.draw_text(cv, v.text, v.position[0] + st.dx, v.position[1] + st.dy, v.size, v.color,
-                             align="center", valign="middle", opacity=a, glow=v.glow, weight=v.weight,
-                             max_width=v.max_width, progress=st.progress, scale=st.scale,
-                             background=v.background_color, background_alpha=v.background_opacity)
+        x, y = v.position[0] + st.dx, v.position[1] + st.dy
+        style = v.get("style", "plain")
+        back = self.backing(v)
+        kw = dict(align="center", valign="middle", weight=v.weight, max_width=v.max_width, progress=st.progress,
+                  scale=st.scale)
+        if style == "band":
+            # measure the text, then a band across the whole frame at its height
+            box = ctx.text_bounds(v.text, x, y, v.size, align="center", valign="middle", weight=v.weight,
+                                  max_width=v.max_width, scale=st.scale)
+            if box is not None and a > 0:
+                pad = 0.45 * v.size * ctx.s
+                W = ctx.project.size[0] * ctx.s
+                band = np.array([[0, box[1] - pad], [W, box[1] - pad], [W, box[3] + pad], [0, box[3] + pad]])
+                cv.polygon(band, fill=ctx.color(back[0]), fill_alpha=back[1] * a)
+        elif style in ("outline", "shadow"):
+            d = max(1.0, v.size * (0.06 if style == "outline" else 0.08))
+            offsets = ([(dx * d, dy * d) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
+                       if style == "outline" else [(d, d)])
+            dark = ctx.color("#000000")
+            for ox, oy in offsets:
+                ctx.draw_text(cv, v.text, x + ox, y + oy, v.size, dark,
+                              opacity=a * (0.85 if style == "outline" else 0.65), **kw)
+        box_kw = {} if style == "band" or back is None else {"background": back[0], "background_alpha": back[1]}
+        return ctx.draw_text(cv, v.text, x, y, v.size, v.color, opacity=a, glow=v.glow, **kw, **box_kw)
 
 
 @register

@@ -10,6 +10,7 @@ export default [{
     localStorage: "readonly", alert: "readonly", confirm: "readonly", Image: "readonly", ResizeObserver: "readonly",
     getComputedStyle: "readonly", EventSource: "readonly", WebSocket: "readonly", AbortController: "readonly",
     Headers: "readonly", Response: "readonly", btoa: "readonly", TextEncoder: "readonly", queueMicrotask: "readonly",
+    MediaRecorder: "readonly", File: "readonly",
   } },
   rules: { "no-undef": "error", "no-unused-vars": ["error", { args: "none", caughtErrors: "none" }], "no-dupe-keys": "error",
            "no-unreachable": "error", "no-redeclare": "error", "no-shadow-restricted-names": "error" },

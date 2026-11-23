@@ -9,6 +9,7 @@ from . import (  # noqa: F401  (registers the object types)
     optics,
     plots,
     science,
+    sound,
 )
 from .base import REGISTRY, Prop, SceneObject, State
 from .project import SETTINGS_PROPS, CameraRig, Project, all_schemas

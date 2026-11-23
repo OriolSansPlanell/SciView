@@ -14,9 +14,17 @@
     "vignette": 0.35,
     "bloom": 0.7,
     "font": "Poppins",
+    "theme": "",
+    "logo": "",
+    "logo_position": "bottom-right",
+    "logo_size": 160.0,
+    "logo_margin": 40.0,
+    "logo_opacity": 0.9,
+    "logo_scenes": "all",
     "audio": "",
     "audio_offset": 0.0,
-    "audio_volume": 1.0
+    "audio_volume": 1.0,
+    "crop_x": -1.0
   },
   "palette": {
     "teal": "#4fd1c5",

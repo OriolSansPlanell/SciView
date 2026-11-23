@@ -20,7 +20,7 @@ def test_every_schema_is_complete():
         assert sc["label"] and sc["category"] and sc["icon"] and sc["description"], cls
         names = [p["name"] for p in sc["props"]]
         assert len(names) == len(set(names)), f"duplicate props in {cls.TYPE}"
-        assert "opacity" in names
+        assert "opacity" in names or cls.TYPE == "voice"    # a voice clip is heard, not drawn
         # property names must not collide with timing keywords of Project.add
         assert not {"start", "end", "enter", "exit", "id", "name"} & set(names), cls.TYPE
 
