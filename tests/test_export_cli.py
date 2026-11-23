@@ -1,9 +1,9 @@
 import json
-import re
 import subprocess
 import sys
 
 import pytest
+from _media import media_info, video
 
 import sciview as sv
 from sciview.cli import main
@@ -93,7 +93,7 @@ def test_cli_presets_scenes_themes_and_frame_checks(tmp_path, has_ffmpeg, capsys
     assert (tmp_path / "p.png").exists()
     assert main(["render", str(f), "--for", "vertical", "--scene", "Result", "--scale", "0.1", "--workers", "1",
                  "-q", "-o", str(tmp_path / "v.mp4")]) == 0
-    assert re.search(r"Video: .*?, 108x192", probe(tmp_path / "v.mp4"))
+    assert video(media_info(tmp_path / "v.mp4"))["size"] == (108, 192)
     assert main(["render", str(f), "--transparent", "--scale", "0.1", "--end", "0.2", "--workers", "1", "-q",
                  "-o", str(tmp_path / "frames")]) == 0
     assert any((tmp_path / "frames").glob("*.png"))

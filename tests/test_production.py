@@ -1,28 +1,18 @@
 """Production: sound and narration, captions and contrast, transparent and cropped export, presets,
 chapters and subtitle tracks, themes, the web player and PowerPoint."""
 import json
-import shutil
 import subprocess
 import zipfile
 
 import numpy as np
 import pytest
+from _media import media_info, video
 from PIL import Image
 
 import sciview as sv
 from sciview import audio, checks, narration, theme
 from sciview.export import TARGETS, ExportError, chapters_metadata, crop_rect, export, srt_text
 from sciview.render import FrameInfo
-
-FFPROBE = shutil.which("ffprobe")
-
-
-def probe(path):
-    if FFPROBE is None:
-        pytest.skip("ffprobe is not installed")
-    r = subprocess.run([FFPROBE, "-v", "error", "-show_streams", "-show_chapters", "-of", "json", str(path)],
-                       capture_output=True, text=True)
-    return json.loads(r.stdout)
 
 
 def tone(path, seconds=2.0, on=((0.2, 0.8), (1.2, 1.7)), freq=330):
@@ -185,11 +175,11 @@ def test_transparent_frames_have_alpha_and_logo():
 
 def test_export_mp4_with_sound_chapters_and_soft_subtitles(film):
     out = export(film, film.base_dir / "f.mp4", scale=0.25, workers=1, subtitles="soft")
-    d = probe(out)
-    kinds = [s["codec_type"] for s in d["streams"]]
+    d = media_info(out)
+    kinds = [s["type"] for s in d["streams"]]
     assert kinds.count("video") == 1 and "audio" in kinds and "subtitle" in kinds
-    assert [c["tags"]["title"] for c in d["chapters"]] == ["Scene 1", "Results"]
-    assert float(d["chapters"][1]["start_time"]) == pytest.approx(2.75, abs=0.02)
+    assert [c["title"] for c in d["chapters"]] == ["Scene 1", "Results"]
+    assert d["chapters"][1]["start"] == pytest.approx(2.75, abs=0.02)
     srt = (film.base_dir / "f.srt").read_text()
     assert "First words" in srt and "00:00:02,700 --> 00:00:04,300" in srt
     assert (film.base_dir / "f.vtt").read_text().startswith("WEBVTT")
@@ -197,14 +187,13 @@ def test_export_mp4_with_sound_chapters_and_soft_subtitles(film):
 
 def test_transparent_and_cropped_exports(film):
     mov = export(film, film.base_dir / "o.mov", scale=0.25, workers=1, transparent=True, end=1)
-    v = [s for s in probe(mov)["streams"] if s["codec_type"] == "video"][0]
-    assert v["codec_name"] == "prores" and v["pix_fmt"].startswith("yuva444")
+    v = video(media_info(mov))
+    assert v["codec"] == "prores" and v["pix_fmt"].startswith("yuva444")
     frames = export(film, film.base_dir / "png", scale=0.1, workers=1, transparent=True, end=0.2)
     first = sorted(frames.glob("*.png"))[0]
     assert Image.open(first).mode == "RGBA"
     sq = export(film, film.base_dir / "sq", target="square", scale=0.25, workers=1, end=0.5)
-    v = [s for s in probe(sq)["streams"] if s["codec_type"] == "video"][0]
-    assert sq.suffix == ".mp4" and (v["width"], v["height"]) == (270, 270)
+    assert sq.suffix == ".mp4" and video(media_info(sq))["size"] == (270, 270)
     still = export(film, film.base_dir / "poster", target="poster", scale=0.1, time=1.0)
     assert still.suffix == ".png" and Image.open(still).size == (384, 216)          # a tenth of 4K
     with pytest.raises(ExportError, match="cannot be transparent"):
@@ -215,9 +204,8 @@ def test_transparent_and_cropped_exports(film):
 
 def test_scene_export_and_parallel_workers_with_options(film):
     one = export(film, film.base_dir / "s2.mp4", scene="Results", scale=0.1, workers=1)
-    d = probe(one)
-    v = [s for s in d["streams"] if s["codec_type"] == "video"][0]
-    assert float(v["duration"]) == pytest.approx(2.0, abs=0.1) and not d.get("chapters")
+    d = media_info(one)
+    assert d["duration"] == pytest.approx(2.0, abs=0.1) and not d["chapters"]
     par = export(film, film.base_dir / "par", scale=0.1, workers=2, transparent=True, end=0.3)
     seq = export(film, film.base_dir / "seq", scale=0.1, workers=1, transparent=True, end=0.3)
     for a, b in zip(sorted(par.glob("*.png")), sorted(seq.glob("*.png"))):
