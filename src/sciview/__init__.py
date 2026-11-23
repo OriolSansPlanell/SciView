@@ -15,12 +15,15 @@ Quick start::
 Open the graphical editor with ``sciview edit`` in a terminal.
 """
 from .model import REGISTRY, CameraRig, Project, Prop, SceneObject, all_schemas
+from .model.base import register
+from .model.objects2d import Object2D
+from .model.objects3d import Object3D
 from .render import Renderer
 
-__version__ = "0.4.0"
+__version__ = "1.0.0"
 
-__all__ = ["Project", "SceneObject", "Prop", "CameraRig", "Renderer", "REGISTRY", "all_schemas",
-           "object_types", "load", "__version__"]
+__all__ = ["Project", "SceneObject", "Object2D", "Object3D", "Prop", "register", "CameraRig", "Renderer",
+           "REGISTRY", "all_schemas", "object_types", "load", "preview", "__version__"]
 
 
 def object_types() -> list[str]:
@@ -31,3 +34,21 @@ def object_types() -> list[str]:
 def load(path) -> Project:
     """Open a project file."""
     return Project.load(path)
+
+
+def preview(project: Project, **kw):
+    """A scrubbable preview of a film in a Jupyter notebook; see :func:`sciview.jupyter.preview`."""
+    from .jupyter import preview as _preview
+    return _preview(project, **kw)
+
+
+def load_ipython_extension(ipython) -> None:
+    """``%load_ext sciview`` in Jupyter: the ``%sciview`` magic (see :mod:`sciview.jupyter`)."""
+    from .jupyter import load_ipython_extension as _load
+    _load(ipython)
+
+
+# object types, templates and speech engines from installed plugin packages (last: plugins import sciview)
+from . import plugins as _plugins  # noqa: E402
+
+_plugins.load()

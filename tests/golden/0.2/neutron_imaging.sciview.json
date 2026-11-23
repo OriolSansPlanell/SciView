@@ -1,0 +1,341 @@
+{
+  "sciview": "1.0",
+  "settings": {
+    "title": "Neutron imaging",
+    "author": "",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 16.0,
+    "background": "#03070e",
+    "background2": "#111a2c",
+    "background_style": "radial",
+    "stars": 0.4,
+    "vignette": 0.35,
+    "bloom": 0.7,
+    "font": "Poppins",
+    "audio": "",
+    "audio_offset": 0.0,
+    "audio_volume": 1.0
+  },
+  "palette": {
+    "teal": "#4fd1c5",
+    "gold": "#ffcf4a",
+    "amber": "#f5a23c",
+    "blue": "#6cb4fc",
+    "ice": "#a5e4fc",
+    "cream": "#f3ead8",
+    "red": "#ff6b6b",
+    "violet": "#c38cff",
+    "green": "#7ee08a",
+    "white": "#ffffff",
+    "gray": "#8b95a7",
+    "navy": "#10182a"
+  },
+  "camera": {
+    "props": {
+      "target": [
+        -20.0,
+        0.0,
+        0.0
+      ],
+      "distance": 150.0,
+      "azimuth": -60.0,
+      "elevation": 22.0,
+      "fov": 28.0,
+      "offset": [
+        0.0,
+        -10.0
+      ]
+    },
+    "keys": {
+      "azimuth": [
+        {
+          "t": 0.0,
+          "v": -130.0,
+          "ease": "smooth"
+        },
+        {
+          "t": 9.0,
+          "v": -116.0,
+          "ease": "in_out"
+        },
+        {
+          "t": 16.0,
+          "v": -109.0,
+          "ease": "in_out"
+        }
+      ],
+      "elevation": [
+        {
+          "t": 0.0,
+          "v": 22.0,
+          "ease": "smooth"
+        },
+        {
+          "t": 9.0,
+          "v": 14.0,
+          "ease": "in_out"
+        }
+      ],
+      "distance": [
+        {
+          "t": 0.0,
+          "v": 235.0,
+          "ease": "smooth"
+        },
+        {
+          "t": 9.0,
+          "v": 192.0,
+          "ease": "in_out"
+        },
+        {
+          "t": 16.0,
+          "v": 180.0,
+          "ease": "in_out"
+        }
+      ]
+    }
+  },
+  "objects": [
+    {
+      "id": "grid3d1",
+      "type": "grid3d",
+      "name": "Floor",
+      "props": {
+        "center": [
+          0.0,
+          0.0,
+          -16.0
+        ],
+        "size": [
+          220.0,
+          120.0
+        ],
+        "divisions": 22
+      },
+      "start": 0.0,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "box1",
+      "type": "box",
+      "name": "Neutron source",
+      "props": {
+        "center": [
+          -75.0,
+          0.0,
+          0.0
+        ],
+        "size": [
+          18.0,
+          18.0,
+          18.0
+        ],
+        "edge_color": "gold",
+        "fill_color": "gold",
+        "label": "neutron source",
+        "label_color": "gold",
+        "label_position": "below"
+      },
+      "start": 0.3,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "cylinder1",
+      "type": "cylinder",
+      "name": "Sample",
+      "props": {
+        "height": 16.0,
+        "rings": 3,
+        "lines": 4,
+        "label": "sample"
+      },
+      "start": 1.0,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "screen1",
+      "type": "screen",
+      "name": "Detector",
+      "props": {
+        "center": [
+          34.0,
+          0.0,
+          0.0
+        ],
+        "size": [
+          22.0,
+          22.0
+        ],
+        "thickness": 3.0,
+        "image": "assets/radiograph.png",
+        "colormap": "gold",
+        "counts": 40.0,
+        "label": "detector",
+        "label_color": "teal"
+      },
+      "keys": {
+        "buildup": [
+          {
+            "t": 4.0,
+            "v": 0.0,
+            "ease": "linear"
+          },
+          {
+            "t": 11.0,
+            "v": 1.0,
+            "ease": "linear"
+          }
+        ]
+      },
+      "start": 1.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "beam1",
+      "type": "beam",
+      "name": "Neutrons",
+      "props": {
+        "source": [
+          -66.0,
+          0.0,
+          0.0
+        ],
+        "target": [
+          32.0,
+          0.0,
+          0.0
+        ],
+        "source_radius": 2.5,
+        "target_radius": 9.0,
+        "rate": 260.0,
+        "speed": 34.0,
+        "streak": 5.0,
+        "scatter_fraction": 0.12,
+        "scatter_at": 0.67
+      },
+      "start": 2.5,
+      "end": null,
+      "enter": {
+        "effect": "none",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "title1",
+      "type": "title",
+      "name": "Title",
+      "props": {
+        "text": "Neutron imaging",
+        "subtitle": "How a radiograph is made, one neutron at a time"
+      },
+      "start": 0.2,
+      "end": null,
+      "enter": {
+        "effect": "slide_up",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption1",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "A beam of neutrons leaves the source and crosses the sample."
+      },
+      "start": 1.5,
+      "end": 5.5,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption2",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Each neutron that gets through lands on one pixel of the detector."
+      },
+      "start": 5.5,
+      "end": 10.0,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption3",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Counted neutron by neutron, the radiograph builds up: water stops neutrons."
+      },
+      "start": 10.0,
+      "end": 15.5,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    }
+  ],
+  "template": {
+    "title": "Imaging beamline",
+    "description": "A particle beam crosses a sample; the detector image builds up count by count.",
+    "order": 10,
+    "thumb_time": 12.5
+  }
+}

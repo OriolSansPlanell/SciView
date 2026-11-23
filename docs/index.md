@@ -11,6 +11,10 @@ and keyframed in a visual editor or from Python, exported to video for talks, le
 * [Object reference](objects.md): every object and property.
 * [Rendering and sharing](rendering.md): formats, presets, transparency, chapters, sound, subtitles, web page,
   PowerPoint.
+* [Notebooks](jupyter.md): previews and the editor in Jupyter.
 * [AI assistants](agent.md): the assistant panel, the MCP server and the model benchmark.
-* [Project file format](file-format.md): the JSON that the editor and Python share.
+* [Plugins](plugins.md): object types, templates and voices from other packages; writing one.
+* [Gallery](gallery.md): every template as a film, with its project to download.
+* [Project file format](file-format.md): the JSON that the editor and Python share, and its schema.
+* [Stability](stability.md): what stays the same within 1.x.
 * [Troubleshooting](troubleshooting.md)

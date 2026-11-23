@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sciview"
-version = "0.4.0"
+version = "1.0.0"
 description = "Make clear, beautiful scientific explainer videos with a visual editor or a few lines of Python."
 readme = "README.md"
 license = "MIT"
@@ -14,7 +14,8 @@ requires-python = ">=3.10"
 keywords = ["scientific visualization", "animation", "video", "science communication", "explainer", "neutron imaging",
             "tomography", "MCP", "narration", "subtitles"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: Jupyter",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Education",
     "Operating System :: OS Independent",
@@ -43,18 +44,20 @@ math = ["matplotlib>=3.5"]
 science = ["scikit-image>=0.19", "scipy>=1.8", "tifffile>=2021.1", "h5py>=3.6"]
 pptx = ["python-pptx>=0.6.21"]
 tts = ["pyttsx3>=2.90"]
+schema = ["jsonschema>=4.18"]
 test = ["pytest>=7", "matplotlib>=3.5", "scikit-image>=0.19", "scipy>=1.8", "tifffile>=2021.1", "h5py>=3.6",
-        "python-pptx>=0.6.21"]
+        "python-pptx>=0.6.21", "jsonschema>=4.18"]
 gui-test = ["playwright>=1.40"]
 docs = ["mkdocs>=1.5", "mkdocs-material>=9"]
-all = ["matplotlib>=3.5", "scikit-image>=0.19", "scipy>=1.8", "tifffile>=2021.1", "h5py>=3.6", "python-pptx>=0.6.21"]
+all = ["matplotlib>=3.5", "scikit-image>=0.19", "scipy>=1.8", "tifffile>=2021.1", "h5py>=3.6", "python-pptx>=0.6.21",
+       "jsonschema>=4.18"]
 
 [project.scripts]
 sciview = "sciview.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/OriolSansPlanell/SciView"
-Documentation = "https://github.com/OriolSansPlanell/SciView/tree/main/docs"
+Documentation = "https://oriolsansplanell.github.io/SciView/"
 Issues = "https://github.com/OriolSansPlanell/SciView/issues"
 Changelog = "https://github.com/OriolSansPlanell/SciView/blob/main/CHANGELOG.md"
 

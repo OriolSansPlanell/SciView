@@ -688,3 +688,80 @@ def test_assistant_panel_runs_a_request_as_one_undo_step(open_editor, tmp_path, 
     page.keyboard.press("Control+Shift+z")
     ed.settle(900)
     assert ed.project.find("caption2").props["size"] == 40
+
+
+# ------------------------------------------------------------------ 1.0: plugins' objects, keyboard, notebook preview
+def test_objects_of_unknown_types_keep_their_row_and_are_saved(open_editor, tmp_path):
+    (tmp_path / "f.sciview.json").write_text(json.dumps({
+        "sciview": "1.0", "settings": {"duration": 4},
+        "objects": [{"id": "t1", "type": "title", "name": "Title", "props": {"text": "Hi"}},
+                    {"id": "x1", "type": "someplugin_widget", "name": "Widget", "props": {"knobs": 3},
+                     "start": 1.0, "end": 3.0}]}))
+    ed = open_editor(sv.load(tmp_path / "f.sciview.json"))
+    page = ed.page
+    page.wait_for_selector(".tl-label >> text=Widget")
+    ed.row("Widget").click()
+    ed.settle(400)
+    assert page.locator("#inspector", has_text="someplugin_widget").count() >= 1
+    page.keyboard.press("Alt+ArrowRight")                      # keyboard: move the clip one frame later
+    page.keyboard.press("Shift+Alt+ArrowRight")                # and one second later
+    ed.settle(900)
+    x = ed.project.find("x1")
+    assert x.start == pytest.approx(1.0 + 1 / 30 + 1, abs=1e-3) and x.TYPE == "someplugin_widget"
+    page.keyboard.press("Control+s")
+    ed.settle(900)
+    saved = json.loads((tmp_path / "f.sciview.json").read_text())
+    w = next(o for o in saved["objects"] if o["id"] == "x1")
+    assert w["props"] == {"knobs": 3} and w["type"] == "someplugin_widget"
+
+
+def test_keyboard_timing_and_rows(open_editor, tmp_path):
+    ed = open_editor(boxes_project(tmp_path))
+    page = ed.page
+    page.wait_for_selector(".tl-row")
+    label = ed.row("Box 1")
+    label.focus()
+    page.keyboard.press("Enter")
+    ed.settle(300)
+    assert ed.state()["sel"] == ["rect2"]
+    assert "from 0.00 to 6.00 s" in label.get_attribute("aria-label")
+    page.keyboard.press("ArrowDown")                            # next row gets the focus
+    assert page.evaluate("document.activeElement.textContent").strip().startswith("Box 0")      # rows: top drawn first
+    ed.row("Box 1").click()
+    ed.seek(1.5)
+    page.locator("#overlay").click(position={"x": 5, "y": 5})
+    ed.row("Box 1").click()
+    page.keyboard.press("]")                                    # end the clip at the playhead
+    ed.seek(0.5)
+    page.keyboard.press("[")                                    # start it here
+    ed.settle(900)
+    o = ed.project.find("rect2")
+    assert (o.start, o.end) == pytest.approx((0.5, 1.5))
+
+
+def test_report_link_and_notebook_preview(open_editor, browser, tmp_path):
+    ed = open_editor(boxes_project(tmp_path))
+    page = ed.page
+    page.wait_for_selector(".tl-row")
+    page.click("#btnHelp")
+    link = page.locator("a", has_text="Save a report for a bug")
+    assert link.get_attribute("href") == "/api/report"
+    with page.expect_download() as dl:
+        link.click()
+    assert dl.value.suggested_filename == "sciview-report.zip"
+    page.keyboard.press("Escape")
+    # the notebook preview is plain HTML: it plays and scrubs in any browser
+    from sciview import jupyter
+    html = jupyter.preview(ed.project, fps=4, scale=0.1)._repr_html_()
+    nb = browser.new_page()
+    try:
+        nb.set_content(f"<html><body>{html}</body></html>")
+        first = nb.get_attribute("img", "src")
+        nb.fill("input[type=range]", "10")
+        nb.dispatch_event("input[type=range]", "input")
+        assert nb.get_attribute("img", "src") != first and nb.inner_text(".t").startswith("2.50")
+        nb.click("button.play")
+        nb.wait_for_timeout(700)
+        assert nb.inner_text("button.play") in ("Pause", "Play")
+    finally:
+        nb.close()

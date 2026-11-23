@@ -259,6 +259,20 @@ what it did. Press Ctrl+Z to take back a change you do not want: **Undo** treats
 your edit is kept and the assistant's change is made again on top of it. Locked objects are never touched by
 the assistant.
 
+## Objects from plugins
+
+Object types can come from [plugins](plugins.md). A film that uses a plugin which is not installed still
+opens: its objects keep their rows (marked "Missing" with a warning), can be moved in time, grouped and
+deleted, are not drawn, and are saved back unchanged, so the film is complete again once the plugin is
+installed.
+
+## Reporting a problem
+
+**Save a report for a bug** in the help (<kbd>?</kbd>) downloads a zip with the film, what SciView finds wrong
+with it and the versions you use; **With the film's files** adds the images, data and sound (up to 50 MB).
+Nothing is sent anywhere: look through the zip, then attach it to an issue on GitHub. From the command line:
+`sciview info --report film.sciview.json`.
+
 ## Autosave
 
 Every 30 seconds, and when the editor stops, unsaved changes are written next to the film as a hidden file
@@ -302,6 +316,10 @@ per scene (needs `pip install "sciview[pptx]"`). See [Rendering and sharing](ren
 | <kbd>Home</kbd> <kbd>End</kbd> | start / end |
 | <kbd>K</kbd> | keyframe all values of the selection |
 | <kbd>R</kbd> | record narration from the playhead / stop recording |
+| <kbd>Alt</kbd>+<kbd>←</kbd> <kbd>→</kbd> | move the selected clips one frame earlier / later (<kbd>Shift</kbd>: one second) |
+| <kbd>[</kbd> <kbd>]</kbd> | start / end the selected clips at the playhead |
+| <kbd>Tab</kbd>, <kbd>↑</kbd> <kbd>↓</kbd>, <kbd>Enter</kbd> on the timeline | go through the rows and select one, without the mouse |
+| <kbd>PageUp</kbd> <kbd>PageDown</kbd> | previous / next scene |
 | <kbd>Del</kbd> | delete the selected keyframe, or the selected objects (a group with its members) |
 | <kbd>Ctrl</kbd>+<kbd>D</kbd> | duplicate |
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd> | copy, cut, paste objects or the picked keyframe |

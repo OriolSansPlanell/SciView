@@ -33,7 +33,7 @@ enough to diff in git and to generate from other programs.
 
 ## Fields
 
-* `sciview`: format version. Files with the same major version load; newer minor versions may add properties.
+* `sciview`: format version (see [Versions and migrations](#versions-and-migrations)).
 * `settings`: film settings (see the [reference](objects.md#film-settings)). Missing values take defaults.
 * `palette`: colour names usable in any colour property.
 * `camera`: `props` and `keys` of the camera.
@@ -138,16 +138,53 @@ unknown `group` type and fall back to smooth easing.
 Files from SciView 0.2 open unchanged in 0.3. Files using the new object types, data tracks or file patterns
 open in 0.2 with warnings about what it does not know.
 
-Files from SciView 0.3 open unchanged in 0.4, and films with one scene are saved in the 0.3 form. In 0.3, a
+Files from every release open unchanged in 1.0, and films with one scene are saved in the 0.3 form.
+Files from SciView 0.3 open unchanged in 0.4. In 0.3, a
 0.4 file opens with notes about the settings and object types it does not know (logo, theme, voice clips);
 the objects of later scenes all start from 0 s there, because 0.3 does not shift them by their scene.
 
 Values: numbers, booleans, strings; colours as `"#rrggbb"` or a palette name; vectors as lists; `array`
 properties as lists of numbers or as text (`"1, 2, 3"`).
 
+## Versions and migrations
+
+`"sciview": "1.0"` is the format version. Within format 1.x, new releases only add things, so every 1.x
+release reads every earlier file (see [Stability](stability.md)). Parts a release does not know are **kept**:
+
+* an object of an unknown type (a plugin that is not installed, an object from a newer release) stays in the
+  file as it is, is listed in the timeline with a warning, can still be moved in time or grouped, and is not
+  drawn;
+* unknown properties, keyframes and data tracks of known objects, unknown settings, unknown scene fields and
+  unknown top-level fields are written back unchanged.
+
+So a film made with a newer SciView or with a plugin can be opened, edited and saved without losing anything.
+A file from a newer format (1.3, say) opens with a note saying so.
+
+If a later release has to change something in a way that is not additive, it adds a migration: a function
+that converts files of the older format when they are opened (`sciview.model.migrate`). The editor and
+`sciview check` say what was converted. Template files from every release since 0.1 are kept in the tests
+(`tests/golden`) and must open, save and render in every new release.
+
+## Checking files against the schema
+
+The format is described by a JSON Schema, published at
+[`schema/sciview-1.json`](schema/sciview-1.json) (`https://oriolsansplanell.github.io/SciView/schema/sciview-1.json`),
+for programs that write SciView files and for editors that complete and check JSON.
+
+```bash
+sciview schema --validate film.sciview.json             # needs: pip install jsonschema
+sciview schema --validate film.sciview.json --strict    # also reject what this version does not know
+sciview schema -o sciview-1.json                         # the schema, with the types of installed plugins
+```
+
+By default the schema accepts what format 1.x readers must accept (unknown settings, properties and types);
+`--strict` describes exactly what this version writes.
+
 ## Robustness
 
-Unknown object types and properties produce warnings (shown by `sciview check` and in the editor) instead of
-errors, so files written by a newer SciView still open. A `parent` that is missing, is not a group or makes
-groups contain each other in a circle is reported and ignored. Expressions are parsed and checked, never executed as
-Python, so opening a project from someone else is safe.
+Problems in a file produce warnings (shown by `sciview check` and in the editor) instead of errors. A part
+that cannot be read (a property of the wrong kind, a scene without a usable length, a damaged object) is
+reported and replaced by a default, or kept unchanged when it is a whole object. A `parent` that is missing,
+is not a group or makes groups contain each other in a circle is reported and ignored. Expressions are parsed
+and checked, never executed as Python, so opening a project from someone else is safe; the test suite fuzzes
+both the loader and the expression parser.

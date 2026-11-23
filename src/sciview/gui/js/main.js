@@ -9,6 +9,7 @@ import { toggleRecording } from './sound.js';
 import { initAssistant } from './assistant.js';
 import {
   groupSelection, ungroup, removeSelected, duplicateSelected, copySelection, cutSelection, pasteText, lastCopied,
+  nudgeSelected, trimSelected,
 } from './actions.js';
 import { api } from './api.js';
 import { el, toast, fmtTime, clamp, modalOpen } from './ui.js';
@@ -267,8 +268,16 @@ document.addEventListener('keydown', (e) => {
   }
   switch (e.key) {
     case ' ': e.preventDefault(); togglePlay(); break;
-    case 'ArrowLeft': e.preventDefault(); setTime(S.time - (e.shiftKey ? 1 : frameDt())); break;
-    case 'ArrowRight': e.preventDefault(); setTime(S.time + (e.shiftKey ? 1 : frameDt())); break;
+    case 'ArrowLeft':
+    case 'ArrowRight': {
+      e.preventDefault();
+      const step = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 1 : frameDt());
+      if (e.altKey) nudgeSelected(step);                 // move the selected clips in time
+      else setTime(S.time + step);
+      break;
+    }
+    case '[': trimSelected('start'); break;
+    case ']': trimSelected('end'); break;
     case 'Home': setTime(0); break;
     case 'End': setTime(duration()); break;
     case 'PageUp': case 'PageDown': {

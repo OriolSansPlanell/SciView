@@ -38,32 +38,46 @@ MAX_UPLOAD = 1024 * 1024 * 1024  # 1 GB
 
 
 # --------------------------------------------------------------------------- templates
+def template_folders() -> dict[str, tuple[Path, str]]:
+    """Template name -> (folder, where it comes from: "" for built in, else the plugin's name).
+    A plugin's template whose name is taken is listed as ``<plugin>-<name>``."""
+    from . import plugins
+    out: dict[str, tuple[Path, str]] = {}
+    sources = [("", TEMPLATE_DIR)] + plugins.template_dirs()
+    for source, root in sources:
+        if not root.is_dir():
+            continue
+        for d in sorted(root.iterdir()):
+            if not (d / "project.sciview.json").is_file() or not re.fullmatch(r"[A-Za-z0-9_\-]+", d.name):
+                continue
+            name = d.name if d.name not in out else f"{source}-{d.name}"
+            if name not in out:
+                out[name] = (d, source)
+    return out
+
+
 def list_templates() -> list[dict]:
     out = []
-    if not TEMPLATE_DIR.exists():
-        return out
-    for d in sorted(TEMPLATE_DIR.iterdir()):
-        f = d / "project.sciview.json"
-        if not f.exists():
-            continue
+    for name, (d, source) in template_folders().items():
         try:
-            data = json.loads(f.read_text(encoding="utf-8"))
+            data = json.loads((d / "project.sciview.json").read_text(encoding="utf-8"))
         except Exception:
             continue
         meta = data.get("template") or {}
-        out.append({"name": d.name, "title": meta.get("title", d.name.replace("_", " ").title()),
-                    "description": meta.get("description", ""), "order": meta.get("order", 50),
+        out.append({"name": name, "title": meta.get("title", d.name.replace("_", " ").title()),
+                    "description": meta.get("description", ""), "order": meta.get("order", 50 if not source else 80),
                     "duration": (data.get("settings") or {}).get("duration", 10),
-                    "thumb_time": meta.get("thumb_time")})
+                    "thumb_time": meta.get("thumb_time"), "plugin": source})
     return sorted(out, key=lambda m: (m["order"], m["title"]))
 
 
 def instantiate_template(name: str, base_dir: Path) -> Project:
     """Load a template and copy its asset files into ``base_dir/assets``."""
-    tdir = TEMPLATE_DIR / name
-    f = tdir / "project.sciview.json"
-    if not re.fullmatch(r"[A-Za-z0-9_\-]+", name) or not f.exists():
+    found = template_folders().get(name) if re.fullmatch(r"[A-Za-z0-9_\-]+", name or "") else None
+    if found is None:
         raise ValueError(f"no template called {name!r}")
+    tdir = found[0]
+    f = tdir / "project.sciview.json"
     data = json.loads(f.read_text(encoding="utf-8"))
     data.pop("template", None)
     mapping: dict[str, str] = {}
@@ -625,6 +639,12 @@ class Handler(BaseHTTPRequestHandler):
                 name = (q.get("name") or "theme").strip().replace(" ", "-").lower()
                 return self._send(200, json.dumps(d, indent=2).encode(), "application/json",
                                   {"Content-Disposition": f'attachment; filename="{name}.sciview-theme.json"'})
+            if path == "/api/report":
+                from .diagnostics import report
+                with s.render_lock:
+                    data = report(s.project, include_assets=q.get("assets") == "1")
+                return self._send(200, data, "application/zip",
+                                  {"Content-Disposition": 'attachment; filename="sciview-report.zip"'})
             if path == "/api/tts":
                 from . import narration
                 eng = narration.engines()
@@ -810,14 +830,18 @@ def make_server(project: Project, base_dir: Path, host: str = "127.0.0.1", port:
     if host in ("0.0.0.0", "::"):
         import socket
         allowed |= {socket.gethostname().lower(), socket.getfqdn().lower()}
-        allowed |= {a.lower() for a in os.environ.get("SCIVIEW_ALLOWED_HOSTS", "").split(",") if a}
+    # names a proxy in front of the editor uses (an explicit list, comma-separated)
+    allowed |= {a.strip().lower() for a in os.environ.get("SCIVIEW_ALLOWED_HOSTS", "").split(",") if a.strip()}
     handler = type("SciViewHandler", (Handler,), {"session": session, "allowed_hosts": allowed})
     last_err = None
-    for p in range(port, port + 20):
+    for p in range(port, port + 20) if port else [0]:
         try:
             srv = ThreadingHTTPServer((host, p), handler)
             srv.daemon_threads = True
             srv.session = session
+            space, domain = os.environ.get("CODESPACE_NAME"), os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN")
+            if space and domain:                 # GitHub Codespaces forwards the port under this one name
+                allowed.add(f"{space}-{srv.server_address[1]}.{domain}".lower())
             return srv
         except OSError as exc:
             last_err = exc

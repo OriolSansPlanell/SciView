@@ -1,0 +1,638 @@
+{
+  "sciview": "1.0",
+  "settings": {
+    "title": "From gray level to concentration",
+    "author": "",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 18.0,
+    "background": "#03070e",
+    "background2": "#111a2c",
+    "background_style": "radial",
+    "stars": 0.15,
+    "vignette": 0.35,
+    "bloom": 0.7,
+    "font": "Poppins",
+    "audio": "",
+    "audio_offset": 0.0,
+    "audio_volume": 1.0
+  },
+  "palette": {
+    "teal": "#4fd1c5",
+    "gold": "#ffcf4a",
+    "amber": "#f5a23c",
+    "blue": "#6cb4fc",
+    "ice": "#a5e4fc",
+    "cream": "#f3ead8",
+    "red": "#ff6b6b",
+    "violet": "#c38cff",
+    "green": "#7ee08a",
+    "white": "#ffffff",
+    "gray": "#8b95a7",
+    "navy": "#10182a"
+  },
+  "camera": {
+    "props": {
+      "target": [
+        0,
+        0,
+        0
+      ],
+      "distance": 150.0,
+      "azimuth": -60.0,
+      "elevation": 22.0,
+      "fov": 30.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "keys": {}
+  },
+  "objects": [
+    {
+      "id": "title1",
+      "type": "title",
+      "name": "Title",
+      "props": {
+        "text": "From gray level to concentration",
+        "subtitle": "Three steps from a pixel to a number"
+      },
+      "start": 0.2,
+      "end": null,
+      "enter": {
+        "effect": "slide_up",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "panel1",
+      "type": "panel",
+      "name": "Panel 1",
+      "props": {
+        "position": [
+          80.0,
+          170.0
+        ],
+        "size": [
+          520.0,
+          650.0
+        ],
+        "title": "Gray level",
+        "badge": 1
+      },
+      "start": 0.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group1"
+    },
+    {
+      "id": "axes1",
+      "type": "axes",
+      "name": "Counts",
+      "props": {
+        "position": [
+          170.0,
+          270.0
+        ],
+        "size": [
+          380.0,
+          420.0
+        ],
+        "x_range": [
+          0.4,
+          2.6
+        ],
+        "y_range": [
+          0.0,
+          2400.0
+        ],
+        "x_label": "",
+        "y_label": "counts",
+        "x_ticks": 0
+      },
+      "start": 1.2,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group1"
+    },
+    {
+      "id": "bars1",
+      "type": "bars",
+      "name": "Open beam and sample",
+      "props": {
+        "axes": "axes1",
+        "values": "2000, 642",
+        "labels": "I_0, I",
+        "colors": "gray, teal",
+        "value_labels": true,
+        "label_size": 18.0
+      },
+      "start": 2.0,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group1"
+    },
+    {
+      "id": "text1",
+      "type": "text",
+      "name": "Transmission",
+      "props": {
+        "text": "T = I / I_0 = {value:.3f}",
+        "value": 0.321,
+        "position": [
+          110.0,
+          770.0
+        ],
+        "size": 24.0
+      },
+      "start": 4.0,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group1"
+    },
+    {
+      "id": "group1",
+      "type": "group",
+      "name": "Step 1",
+      "props": {
+        "pivot": [
+          80.0,
+          170.0
+        ]
+      },
+      "keys": {
+        "opacity": [
+          {
+            "t": 6.0,
+            "v": 1.0,
+            "ease": "smooth"
+          },
+          {
+            "t": 7.0,
+            "v": 0.45,
+            "ease": "smooth"
+          }
+        ]
+      },
+      "start": 0.0,
+      "end": null,
+      "enter": {
+        "effect": "none",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "none",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "panel2",
+      "type": "panel",
+      "name": "Panel 2",
+      "props": {
+        "position": [
+          700.0,
+          170.0
+        ],
+        "size": [
+          520.0,
+          650.0
+        ],
+        "title": "Attenuation",
+        "badge": 2
+      },
+      "start": 0.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group2"
+    },
+    {
+      "id": "axes2",
+      "type": "axes",
+      "name": "Beer-Lambert",
+      "props": {
+        "position": [
+          790.0,
+          270.0
+        ],
+        "size": [
+          380.0,
+          400.0
+        ],
+        "x_range": [
+          0.0,
+          1.0
+        ],
+        "y_range": [
+          0.0,
+          2.5
+        ],
+        "x_label": "T",
+        "y_label": "-ln T"
+      },
+      "start": 6.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group2"
+    },
+    {
+      "id": "curve1",
+      "type": "curve",
+      "name": "-ln T",
+      "props": {
+        "axes": "axes2",
+        "expression": "-log(x)",
+        "domain": [
+          0.02,
+          1.0
+        ],
+        "color": "cream"
+      },
+      "start": 7.2,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group2"
+    },
+    {
+      "id": "marker1",
+      "type": "marker",
+      "name": "This pixel",
+      "props": {
+        "axes": "axes2",
+        "x": 0.321,
+        "follow": "-log(x)",
+        "label": "-ln T = {y:.2f}"
+      },
+      "keys": {
+        "x": [
+          {
+            "t": 9.6,
+            "v": 0.321,
+            "ease": "smooth"
+          },
+          {
+            "t": 11.0,
+            "v": 0.28,
+            "ease": "smooth"
+          }
+        ]
+      },
+      "start": 8.6,
+      "end": null,
+      "enter": {
+        "effect": "pop",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group2"
+    },
+    {
+      "id": "equation1",
+      "type": "equation",
+      "name": "mu",
+      "props": {
+        "position": [
+          960.0,
+          785.0
+        ],
+        "size": 34.0
+      },
+      "start": 8.0,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group2"
+    },
+    {
+      "id": "group2",
+      "type": "group",
+      "name": "Step 2",
+      "props": {
+        "pivot": [
+          700.0,
+          170.0
+        ]
+      },
+      "keys": {
+        "opacity": [
+          {
+            "t": 12.0,
+            "v": 1.0,
+            "ease": "smooth"
+          },
+          {
+            "t": 13.0,
+            "v": 0.45,
+            "ease": "smooth"
+          }
+        ]
+      },
+      "start": 0.0,
+      "end": null,
+      "enter": {
+        "effect": "none",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "none",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "panel3",
+      "type": "panel",
+      "name": "Panel 3",
+      "props": {
+        "position": [
+          1320.0,
+          170.0
+        ],
+        "size": [
+          520.0,
+          650.0
+        ],
+        "title": "Concentration",
+        "badge": 3
+      },
+      "start": 0.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group3"
+    },
+    {
+      "id": "axes3",
+      "type": "axes",
+      "name": "Calibration",
+      "props": {
+        "position": [
+          1410.0,
+          270.0
+        ],
+        "size": [
+          380.0,
+          420.0
+        ],
+        "x_range": [
+          0.0,
+          6.0
+        ],
+        "y_range": [
+          0.0,
+          100.0
+        ],
+        "x_label": "\\mu (cm^{-1})",
+        "y_label": "D_2O (%)"
+      },
+      "start": 12.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group3"
+    },
+    {
+      "id": "curve2",
+      "type": "curve",
+      "name": "Calibration line",
+      "props": {
+        "axes": "axes3",
+        "expression": "100*(5.56 - x)/(5.56 - 0.674)",
+        "domain": [
+          0.674,
+          5.56
+        ]
+      },
+      "start": 13.2,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group3"
+    },
+    {
+      "id": "marker2",
+      "type": "marker",
+      "name": "Result",
+      "props": {
+        "axes": "axes3",
+        "x": 3.79,
+        "follow": "100*(5.56 - x)/(5.56 - 0.674)",
+        "color": "gold",
+        "label": "{y:.0f} %"
+      },
+      "start": 14.4,
+      "end": null,
+      "enter": {
+        "effect": "pop",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group3"
+    },
+    {
+      "id": "text2",
+      "type": "text",
+      "name": "Counter",
+      "props": {
+        "text": "**{value:.0f} %** D_2O",
+        "position": [
+          1580.0,
+          770.0
+        ],
+        "size": 40.0,
+        "color": "gold",
+        "align": "center"
+      },
+      "keys": {
+        "value": [
+          {
+            "t": 14.6,
+            "v": 0.0,
+            "ease": "linear"
+          },
+          {
+            "t": 16.0,
+            "v": 36.0,
+            "ease": "out"
+          }
+        ]
+      },
+      "start": 14.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "parent": "group3"
+    },
+    {
+      "id": "group3",
+      "type": "group",
+      "name": "Step 3",
+      "props": {
+        "pivot": [
+          1320.0,
+          170.0
+        ]
+      },
+      "start": 0.0,
+      "end": null,
+      "enter": {
+        "effect": "none",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "none",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption1",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Subtract the dark signal and divide by the open beam: the transmission T."
+      },
+      "start": 1.5,
+      "end": 6.5,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption2",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Beer–Lambert turns the transmission into an attenuation coefficient."
+      },
+      "start": 6.5,
+      "end": 12.5,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption3",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "A calibration line between pure H_2O and pure D_2O turns \\mu into a concentration."
+      },
+      "start": 12.5,
+      "end": 17.6,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    }
+  ],
+  "template": {
+    "title": "Step-by-step analysis",
+    "description": "Three numbered panels: bars, a curve with a moving marker and a counter.",
+    "order": 20,
+    "thumb_time": 16.5
+  }
+}

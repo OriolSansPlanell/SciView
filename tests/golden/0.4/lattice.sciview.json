@@ -1,0 +1,210 @@
+{
+  "sciview": "1.0",
+  "settings": {
+    "title": "Rock-salt lattice",
+    "author": "",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 12.0,
+    "background": "#03070e",
+    "background2": "#111a2c",
+    "background_style": "radial",
+    "stars": 0.4,
+    "vignette": 0.35,
+    "bloom": 0.7,
+    "font": "Poppins",
+    "theme": "",
+    "logo": "",
+    "logo_position": "bottom-right",
+    "logo_size": 160.0,
+    "logo_margin": 40.0,
+    "logo_opacity": 0.9,
+    "logo_scenes": "all",
+    "audio": "",
+    "audio_offset": 0.0,
+    "audio_volume": 1.0,
+    "crop_x": -1.0
+  },
+  "palette": {
+    "teal": "#4fd1c5",
+    "gold": "#ffcf4a",
+    "amber": "#f5a23c",
+    "blue": "#6cb4fc",
+    "ice": "#a5e4fc",
+    "cream": "#f3ead8",
+    "red": "#ff6b6b",
+    "violet": "#c38cff",
+    "green": "#7ee08a",
+    "white": "#ffffff",
+    "gray": "#8b95a7",
+    "navy": "#10182a"
+  },
+  "camera": {
+    "props": {
+      "target": [
+        0,
+        0,
+        0
+      ],
+      "distance": 95.0,
+      "azimuth": -60.0,
+      "elevation": 24.0,
+      "fov": 32.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "keys": {
+      "azimuth": [
+        {
+          "t": 0.0,
+          "v": -40.0,
+          "ease": "linear"
+        },
+        {
+          "t": 12.0,
+          "v": 50.0,
+          "ease": "linear"
+        }
+      ]
+    }
+  },
+  "objects": [
+    {
+      "id": "pointcloud1",
+      "type": "pointcloud",
+      "name": "Ions",
+      "props": {
+        "data": "assets/lattice.csv",
+        "color_by": "species",
+        "colormap": "coolwarm",
+        "size": 9.0,
+        "glow": 1.0
+      },
+      "start": 0.4,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 2.5
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "box1",
+      "type": "box",
+      "name": "Unit cell",
+      "props": {
+        "center": [
+          3.0,
+          3.0,
+          3.0
+        ],
+        "size": [
+          12.0,
+          12.0,
+          12.0
+        ],
+        "edge_color": "cream",
+        "edge_width": 1.5,
+        "fill_opacity": 0.03,
+        "glow": 0.6,
+        "label": "unit cell",
+        "label_position": "right"
+      },
+      "start": 4.0,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 1.5
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "arrow3d1",
+      "type": "arrow3d",
+      "name": "a",
+      "props": {
+        "tail": [
+          -9.0,
+          -9.0,
+          -9.0
+        ],
+        "tip": [
+          3.0,
+          -9.0,
+          -9.0
+        ],
+        "color": "gold",
+        "label": "a = 5.64 \\AA",
+        "label_color": "gold"
+      },
+      "start": 6.0,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "title1",
+      "type": "title",
+      "name": "Title",
+      "props": {
+        "text": "Rock-salt structure",
+        "subtitle": "Na^+ and Cl^- on two interleaved cubic lattices"
+      },
+      "start": 0.2,
+      "end": null,
+      "enter": {
+        "effect": "slide_up",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "legend1",
+      "type": "legend",
+      "name": "Legend",
+      "props": {
+        "entries": "#3b4cc0 | Na^+\n#b40426 | Cl^-",
+        "position": [
+          80.0,
+          900.0
+        ],
+        "size": 22.0,
+        "swatch": "circle"
+      },
+      "start": 1.0,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    }
+  ],
+  "template": {
+    "title": "3D structure",
+    "description": "A point cloud from a table, a unit cell and an orbiting camera.",
+    "order": 50,
+    "thumb_time": 8.0
+  }
+}

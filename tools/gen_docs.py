@@ -81,6 +81,11 @@ def main() -> None:
     lines += [f"| `{k}` | `{v}` |" for k, v in sc["palette"].items()]
     (ROOT / "docs" / "objects.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("wrote docs/objects.md")
+    from sciview import schema
+    out = ROOT / "docs" / "schema" / "sciview-1.json"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(schema.dumps(), encoding="utf-8")
+    print(f"wrote {out.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

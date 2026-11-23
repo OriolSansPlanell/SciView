@@ -1,0 +1,27 @@
+{
+  "name": "SciView",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "postCreateCommand": "pip install -e '.[math,pptx]'",
+  "postAttachCommand": "mkdir -p ~/films && cd ~/films && sciview edit demo.sciview.json --template explainer --no-browser",
+  "forwardPorts": [
+    8765
+  ],
+  "portsAttributes": {
+    "8765": {
+      "label": "SciView editor",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  "customizations": {
+    "codespaces": {
+      "openFiles": [
+        "README.md"
+      ]
+    },
+    "vscode": {
+      "extensions": [
+        "ms-python.python"
+      ]
+    }
+  }
+}

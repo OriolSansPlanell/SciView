@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/beamline.gif" alt="A SciView film: a neutron beam crosses a sample and the radiograph builds up on the detector" width="640">
+  <img src="https://raw.githubusercontent.com/OriolSansPlanell/SciView/main/docs/images/beamline.gif" alt="A SciView film: a neutron beam crosses a sample and the radiograph builds up on the detector" width="640">
 </p>
 
 <h1 align="center">SciView</h1>
@@ -8,7 +8,9 @@
 
 <p align="center">
   <a href="https://github.com/OriolSansPlanell/SciView/actions/workflows/ci.yml"><img src="https://github.com/OriolSansPlanell/SciView/actions/workflows/ci.yml/badge.svg" alt="Tests"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4fd1c5" alt="MIT licence"></a>
+  <a href="https://pypi.org/project/sciview/"><img src="https://img.shields.io/pypi/v/sciview?color=ffcf4a" alt="Version on PyPI"></a>
+  <a href="https://oriolsansplanell.github.io/SciView/"><img src="https://img.shields.io/badge/docs-online-4fd1c5" alt="Documentation"></a>
+  <a href="https://github.com/OriolSansPlanell/SciView/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-4fd1c5" alt="MIT licence"></a>
   <img src="https://img.shields.io/badge/python-3.10%E2%80%933.14-6cb4fc" alt="Python 3.10 to 3.14">
 </p>
 
@@ -33,8 +35,10 @@ into a talk.
   subtitles exported for accessibility.
 * **Easy to install**: pure Python on NumPy, OpenCV and Pillow. ffmpeg comes with the package. No LaTeX, no
   Cairo, no GPU needed.
+* **Built to last**: a documented, versioned file format with a JSON Schema; films from every release keep
+  opening; plugins add object types and templates; previews and the editor work in Jupyter notebooks.
 
-<p align="center"><img src="docs/images/editor.png" alt="The SciView editor: object library on the left, preview in the middle, properties on the right, timeline below" width="900"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/OriolSansPlanell/SciView/main/docs/images/editor.png" alt="The SciView editor: object library on the left, preview in the middle, properties on the right, timeline below" width="900"></p>
 
 ## Install
 
@@ -47,6 +51,10 @@ isosurfaces, TIFF stacks, HDF5 volumes and SciPy fits; `pptx` for PowerPoint exp
 captions aloud; `all` for everything but `tts` (`pip install "sciview[math,science,pptx]"`). The newest
 development version installs with `pip install "sciview[math] @ git+https://github.com/OriolSansPlanell/SciView"`.
 SciView needs Python 3.10 or newer and works on Windows, macOS and Linux.
+
+To try it without installing anything, open it in GitHub Codespaces: the editor starts with an example film.
+
+<a href="https://codespaces.new/OriolSansPlanell/SciView"><img src="https://github.com/codespaces/badge.svg" alt="Open in GitHub Codespaces"></a>
 
 ## Make your first film
 
@@ -99,7 +107,8 @@ film.save("beer_lambert.sciview.json")   # open it later with: sciview edit beer
 film.render("beer_lambert.mp4")          # or film.still(4.0, "frame.png", scale=2) for a poster figure
 ```
 
-More in [examples/](examples/) and the [Python guide](docs/python-api.md).
+In a Jupyter notebook, `film.preview()` shows the film with a scrubber, and `sciview.jupyter.edit(film)` opens the
+editor inside the notebook. More in [examples/](https://github.com/OriolSansPlanell/SciView/tree/main/examples/) and the [Python guide](https://github.com/OriolSansPlanell/SciView/blob/main/docs/python-api.md).
 
 ## Command line
 
@@ -114,12 +123,16 @@ sciview still film.sciview.json -t 4.5 --scale 2   # a 3840 px PNG of one moment
 sciview subtitles film.sciview.json            # captions as an .srt file
 sciview check film.sciview.json --frames       # problems, plus hard-to-read or overlapping text
 sciview theme film.sciview.json --apply light  # themes: dark, light, contrast or your .sciview-theme.json
+sciview render talk.sciview.json --part 2/4    # share a long render between computers, then: sciview join
 sciview mcp film.sciview.json                  # let an outside AI assistant edit the film (MCP server)
+sciview plugin new spectroscopy                # start a plugin with your own object types and templates
+sciview schema --validate film.sciview.json    # check a file against the published JSON Schema
+sciview info --report film.sciview.json        # a zip for a bug report (nothing is sent)
 ```
 
 ## What you can put in a film
 
-<p align="center"><img src="docs/images/templates.jpg" alt="Frames from the nine templates: imaging beamline, explainer in scenes, step-by-step analysis, tomography, scatter and thresholds, animated equations, lenses and mirrors, 3D structure, title card" width="900"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/OriolSansPlanell/SciView/main/docs/images/templates.jpg" alt="Frames from the nine templates: imaging beamline, explainer in scenes, step-by-step analysis, tomography, scatter and thresholds, animated equations, lenses and mirrors, 3D structure, title card" width="900"></p>
 
 | | Objects |
 | --- | --- |
@@ -131,10 +144,12 @@ sciview mcp film.sciview.json                  # let an outside AI assistant edi
 | **Shapes & media** | panel/card with numbered badge, rectangle, ellipse, arrow, image (PNG, 16-bit TIFF, NumPy arrays, with colormaps), group |
 | **Sound** | voice clips (recorded in the editor, uploaded, or read aloud by text to speech) with waveforms on the timeline, a soundtrack under the whole film |
 
+Plugins add more: `pip install` one and its objects appear in the library ([writing a plugin](https://github.com/OriolSansPlanell/SciView/blob/main/docs/plugins.md)). Every template is in the [gallery](https://oriolsansplanell.github.io/SciView/gallery/) as a film with its project.
+
 Curve expressions can use time: `sin(x - 2*t)` is a travelling wave. Any number can follow a column of a table
 over time (a **data track**), and any file field can play a series of files, one per step: a stack of
 radiographs, the outputs of a simulation. The full list of properties is in the
-[object reference](docs/objects.md).
+[object reference](https://github.com/OriolSansPlanell/SciView/blob/main/docs/objects.md).
 
 ## Let an AI assistant help
 
@@ -147,7 +162,7 @@ the whole request is one undo step. A benchmark of 42 tasks (`python -m sciview.
 
 `sciview mcp film.sciview.json` offers the same tools to outside assistants (Claude Desktop, LM Studio's chat,
 any [MCP](https://modelcontextprotocol.io) client), limited to a time window, a scene or a few objects if you
-like. See [AI assistants](docs/agent.md).
+like. See [AI assistants](https://github.com/OriolSansPlanell/SciView/blob/main/docs/agent.md).
 
 ## How it works
 
@@ -168,27 +183,32 @@ that anyone can make films like them without writing a renderer.
 
 ## Documentation
 
-* [Getting started](docs/getting-started.md)
-* [The editor](docs/editor.md)
-* [Python guide](docs/python-api.md)
-* [Object reference](docs/objects.md)
-* [Rendering and sharing](docs/rendering.md)
-* [AI assistants](docs/agent.md)
-* [Project file format](docs/file-format.md)
-* [Troubleshooting](docs/troubleshooting.md)
+The documentation is online at [oriolsansplanell.github.io/SciView](https://oriolsansplanell.github.io/SciView/) and in the repository:
+
+* [Getting started](https://github.com/OriolSansPlanell/SciView/blob/main/docs/getting-started.md)
+* [The editor](https://github.com/OriolSansPlanell/SciView/blob/main/docs/editor.md)
+* [Python guide](https://github.com/OriolSansPlanell/SciView/blob/main/docs/python-api.md)
+* [Object reference](https://github.com/OriolSansPlanell/SciView/blob/main/docs/objects.md)
+* [Rendering and sharing](https://github.com/OriolSansPlanell/SciView/blob/main/docs/rendering.md)
+* [AI assistants](https://github.com/OriolSansPlanell/SciView/blob/main/docs/agent.md)
+* [Notebooks](https://github.com/OriolSansPlanell/SciView/blob/main/docs/jupyter.md)
+* [Plugins](https://github.com/OriolSansPlanell/SciView/blob/main/docs/plugins.md)
+* [Project file format](https://github.com/OriolSansPlanell/SciView/blob/main/docs/file-format.md)
+* [Stability](https://github.com/OriolSansPlanell/SciView/blob/main/docs/stability.md): what stays the same within 1.x
+* [Troubleshooting](https://github.com/OriolSansPlanell/SciView/blob/main/docs/troubleshooting.md)
 
 ## Citing SciView
 
 If SciView helps you communicate your research, please cite it. GitHub's "Cite this repository" button gives
-the reference from [CITATION.cff](CITATION.cff).
+the reference from [CITATION.cff](https://github.com/OriolSansPlanell/SciView/blob/main/CITATION.cff).
 
 ## Contributing
 
-Bug reports, templates and new object types are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md); a new
+Bug reports, templates and new object types are very welcome. See [CONTRIBUTING.md](https://github.com/OriolSansPlanell/SciView/blob/main/CONTRIBUTING.md); a new
 object type is one class with a list of properties and a `draw` method, and it appears in the editor
-automatically.
+automatically. How decisions are made is in [GOVERNANCE.md](https://github.com/OriolSansPlanell/SciView/blob/main/GOVERNANCE.md).
 
 ## Licence
 
-SciView is released under the [MIT licence](LICENSE). The bundled Poppins and Inter fonts are under the SIL
+SciView is released under the [MIT licence](https://github.com/OriolSansPlanell/SciView/blob/main/LICENSE). The bundled Poppins and Inter fonts are under the SIL
 Open Font License (see `src/sciview/fonts`).

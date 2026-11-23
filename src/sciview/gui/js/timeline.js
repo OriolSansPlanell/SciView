@@ -4,7 +4,7 @@ import {
   isGroup, children, descendants, issuesFor, sceneObjects, sceneCamera, currentScene,
 } from './state.js';
 import { snapPoints, waveformFor } from './sound.js';
-import { el, drag, clamp } from './ui.js';
+import { el, drag, clamp, fmtTime } from './ui.js';
 import { icon } from './icons.js';
 
 const body = document.getElementById('tlBody');
@@ -52,6 +52,9 @@ export function renderTimeline() {
   if (!S.project) return;
   if (!fitted) { fitted = true; requestAnimationFrame(fit); }
   const width = PAD * 2 + duration() * pps;
+  // keep the keyboard focus on the same row when the rows are drawn again
+  const focusedRow = document.activeElement?.classList?.contains('tl-label')
+    ? document.activeElement.closest('.tl-row')?.dataset.id : null;
   rowsEl.innerHTML = '';
   rowsEl.style.width = `${labelW() + width}px`;
   rowsEl.append(makeRow(sceneCamera(currentScene()), width, 0));
@@ -87,6 +90,7 @@ export function renderTimeline() {
       ? 'This scene is empty. Objects you add go into it; times count from the start of the scene.'
       : 'Objects you add appear here. Drag clips to change when they appear.'));
   }
+  if (focusedRow) rowsEl.querySelector(`.tl-row[data-id="${CSS.escape(focusedRow)}"] .tl-label`)?.focus();
   placePlayhead();
   drawRuler();
 }
@@ -110,12 +114,29 @@ function makeRow(o, width, depth) {
     'aria-expanded': String(!S.collapsed.has(o.id)), html: icon('down'),
   }) : el('span', { class: 'twist-space' });
   const badge = problems.length ? el('span', { class: 'warn-badge', title: problems.map((p) => p.message).join('\n'), html: icon('warning') }) : null;
-  const label = el('div', { class: 'tl-label', title: `${o.name} (${sc ? sc.label : o.type})`, style: { paddingLeft: `${8 + depth * 16}px` } },
-    grip, twist, el('span', { class: 'ic', html: icon(sc ? sc.icon : 'square') }), el('span', { class: 'nm' }, o.name || o.id), badge, eye);
+  const [r0, r1] = isCam ? [0, duration()] : span(o);
+  const label = el('div', {
+    class: 'tl-label', title: `${o.name} (${sc ? sc.label : o.type})`, style: { paddingLeft: `${8 + depth * 16}px` },
+    tabindex: '0', role: 'button', 'aria-pressed': String(isSelected(o.id)),
+    'aria-label': `${o.name || o.id}, ${sc ? sc.label : o.type}${isCam ? '' : `, from ${fmtTime(r0)} to ${fmtTime(r1)} s`}${problems.length ? `, ${problems.length} problem${problems.length > 1 ? 's' : ''}` : ''}`,
+  }, grip, twist, el('span', { class: 'ic', html: icon(sc ? sc.icon : 'square') }), el('span', { class: 'nm' }, o.name || o.id), badge, eye);
   label.addEventListener('click', (e) => {
     if (e.target.closest('.eye') || e.target.closest('.twist')) return;
     if (e.shiftKey || e.metaKey || e.ctrlKey) select(o.id, 'toggle');
     else select(o.id);
+  });
+  label.addEventListener('keydown', (e) => {               // keyboard: Enter or Space selects, arrows move between rows
+    if (e.target !== label) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      select(o.id, e.shiftKey ? 'toggle' : 'set');
+    } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.altKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const all = [...document.querySelectorAll('#tlRows .tl-label')];
+      all[Math.max(0, Math.min(all.length - 1, all.indexOf(label) + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus();
+    }
   });
   if (twist && group) twist.addEventListener('click', () => {
     if (S.collapsed.has(o.id)) S.collapsed.delete(o.id); else S.collapsed.add(o.id);

@@ -3,6 +3,58 @@
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [semantic versioning](https://semver.org/).
 
+## [1.0.0] - 2026-11-23
+
+The first stable release: a file format and plugin API that stay compatible through 1.x, notebooks,
+documentation online with a gallery, and the checks that keep it that way.
+
+### Added
+- **Stable file format 1.x**: parts of a file this version does not know (objects of a plugin that is not
+  installed, properties, keyframes, data tracks, settings, scene and top-level fields from a newer release)
+  are kept and written back unchanged. Unknown objects show in the timeline as "Missing", can still be moved,
+  grouped and deleted, and are not drawn.
+- **JSON Schema** of project files, published at `docs/schema/sciview-1.json` and on the documentation site;
+  `sciview schema` writes it (with plugin types) and `sciview schema --validate FILE [--strict]` checks files.
+- **Migrations**: a registry of conversions for changes that are not additive, run when older files are
+  opened, with a note of what was converted.
+- **Plugins**: object types (`sciview.objects`), templates (`sciview.templates`) and voices (`sciview.tts`)
+  from installed packages, listed in the editor's library and template picker. `sciview plugin list`,
+  `sciview plugin new NAME` (a ready-to-install package with an object type, a template and tests),
+  `SCIVIEW_NO_PLUGINS=1`. `sciview.register`, `Object2D` and `Object3D` are importable from `sciview`.
+- **Notebooks**: `film.preview()` (plain HTML with play, scrubber and chapter buttons; works without
+  extensions and stays in the notebook), `sciview.jupyter.edit(film)` (the editor inside the notebook) and
+  `%load_ext sciview` with `%sciview preview|still|edit`.
+- **Rendering on several computers**: `sciview render --part I/N` and `sciview join`, which puts the pieces
+  together without re-encoding and adds the sound, chapters and subtitles (`export(..., part=)`, `join()`).
+- **Bug reports without telemetry**: "Save a report for a bug" in the editor's help and
+  `sciview info --report FILE [--assets]` write a zip with the film, its problems and the versions.
+- **Keyboard**: Alt+arrows move the selected clips by a frame (Shift: a second), `[` and `]` start or end them
+  at the playhead; timeline rows can be reached with Tab and the arrow keys and selected with Enter, and
+  screen readers announce their name, type and timing.
+- **Documentation site** on GitHub Pages, built by a workflow, with a **gallery** of every template rendered
+  as a film with its project to download; new pages: Notebooks, Plugins, Gallery, Stability.
+- GitHub Codespaces configuration: try the editor without installing anything.
+- `GOVERNANCE.md`, `.zenodo.json`, a conda-forge recipe (`packaging/conda-forge/meta.yaml`), the `schema`
+  extra, and an updated JOSS paper.
+- Tests: template files from every release since 0.1 must open, save identically and render; reference frames
+  of every template (visual regression); the editor's interpolation checked against Python's in Node; the
+  loader and the expression parser fuzzed.
+
+### Changed
+- MP4 export picks an H.264 encoder that works: libx264, else OpenH264, the system's or a graphics card's
+  encoder, else MPEG-4, so an LGPL-only ffmpeg (`SCIVIEW_FFMPEG`) works too.
+- Export starts fewer render processes when large frames (4K and up) would need more than 60 % of the
+  computer's memory.
+- The editor accepts the host name of GitHub Codespaces and of proxies listed in `SCIVIEW_ALLOWED_HOSTS`.
+- Expressions that cannot be evaluated (wrong number of arguments, a function without brackets) raise a clear
+  `ExpressionError` instead of a Python error.
+
+### Fixed
+- Damaged project files no longer stop loading: unreadable settings, scenes, cameras and objects are reported
+  and replaced by defaults (or kept as they are, for objects); file names the system cannot look up count as
+  missing files.
+- A scene with no transition length in its file could not be drawn.
+
 ## [0.4.0] - 2026-11-23
 
 Storytelling and production: scenes, narration, captions that follow your voice, themes, export for every

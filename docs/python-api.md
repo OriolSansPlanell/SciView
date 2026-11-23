@@ -392,36 +392,20 @@ print(film.validate())                 # missing files, broken chart references,
 film.save()
 ```
 
-## Writing a new object type
+## Notebooks
 
-An object type is a class with a list of `Prop`s and a `draw` method. Register it and it appears in the
-editor's library and inspector, in project files and in the reference.
+`film.preview()` shows a film in a Jupyter notebook with a play button and a scrubber, and
+`sciview.jupyter.edit(film)` opens the editor inside the notebook; see [Notebooks](jupyter.md).
+
+## Checking a file against the format
 
 ```python
-import numpy as np
-from sciview.model.base import Prop, SceneObject, register
-
-@register
-class Star(SceneObject):
-    TYPE, LABEL, ICON, CATEGORY = "star", "Star", "sphere", "Shapes & media"
-    DESCRIPTION = "A five-pointed star."
-    HAS_PROGRESS = True                                  # supports the 'draw on' effect
-    PROPS = [
-        Prop("center", "vec2", [960, 540], group="Position"),
-        Prop("radius", "number", 80, min=1, group="Position"),
-        Prop("color", "color", "gold", group="Appearance"),
-    ]
-
-    def draw(self, cv, ctx, v, st):
-        a = np.radians(np.arange(11) * 36 - 90)
-        r = np.where(np.arange(11) % 2, 0.45, 1.0) * v.radius * st.scale
-        pts = (np.stack([np.cos(a) * r, np.sin(a) * r], 1) + v.center + (st.dx, st.dy)) * ctx.s
-        cv.polyline(pts, v.color, v.opacity * st.opacity, 3 * ctx.s, glow=1.0, progress=st.progress)
-        return pts[:, 0].min(), pts[:, 1].min(), pts[:, 0].max(), pts[:, 1].max()
+from sciview import schema
+schema.validate(json.load(open("film.sciview.json")))     # [] when valid; needs jsonschema
+schema.json_schema()                                      # the JSON Schema, with plugin types
 ```
 
-`v` holds the property values at the current time (colours as RGB arrays), `st` the enter/exit state
-(opacity, slide offset, pop scale, draw progress), `ctx` the frame context (camera, scale `ctx.s` from design
-pixels to output pixels, text helpers, assets) and `cv` the canvas with anti-aliased primitives and a glow
-buffer. To load it in the editor, put the class in a module and import it before starting the server, for
-example with a small launcher script that imports your module and calls `sciview.server.serve()`.
+## Writing a new object type
+
+New object types, templates and voices come as plugins: Python packages that SciView finds by itself once
+installed. `sciview plugin new NAME` writes one to start from; [Plugins](plugins.md) explains the object API.
