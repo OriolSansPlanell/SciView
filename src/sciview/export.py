@@ -85,6 +85,52 @@ def default_workers() -> int:
     return max(1, min(8, n - 1))
 
 
+def total_memory() -> int | None:
+    """Bytes of memory in this computer, or None when it cannot be found out."""
+    try:
+        if sys.platform.startswith("linux"):
+            with open("/proc/meminfo", encoding="ascii") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        return int(line.split()[1]) * 1024
+        elif sys.platform == "darwin":
+            out = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=5)
+            return int(out.stdout.strip())
+        elif sys.platform == "win32":
+            import ctypes
+
+            class MemStatus(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            st = MemStatus()
+            st.dwLength = ctypes.sizeof(MemStatus)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st))
+            return int(st.ullTotalPhys)
+    except Exception:
+        return None
+    return None
+
+
+# measured: a busy frame needs about 110 bytes per output pixel while it is drawn (float buffers for colour,
+# glow and bloom), plus about 150 MB per process: 1 GB at 4K, 3.4 GB at 8K.
+BYTES_PER_PIXEL = 110
+PROCESS_BYTES = 150 * 1024 * 1024
+
+
+def workers_for(size: tuple[int, int], wanted: int | None = None, memory: int | None = None) -> int:
+    """How many render processes fit: the default (cores - 1) unless more than 60 % of the computer's
+    memory would be needed, as happens at 4K and above on laptops."""
+    n = default_workers() if wanted is None else max(1, int(wanted))
+    memory = total_memory() if memory is None else memory
+    if not memory:
+        return n
+    per = size[0] * size[1] * BYTES_PER_PIXEL + PROCESS_BYTES
+    return max(1, min(n, int(memory * 0.6 // per)))
+
+
 def detect_format(output: str | os.PathLike) -> str:
     p = Path(output)
     ext = p.suffix.lower().lstrip(".")
@@ -95,20 +141,74 @@ def detect_format(output: str | os.PathLike) -> str:
     raise ExportError(f"unknown output format {p.suffix!r}. Use one of: .{', .'.join(FORMATS)}")
 
 
+# H.264 encoders in order of preference. libx264 is in the usual ffmpeg builds (which are then GPL); an
+# LGPL-only ffmpeg (SCIVIEW_FFMPEG) has none of the GPL encoders, so SciView falls back to OpenH264, the
+# system's own encoder, a graphics card's, or finally MPEG-4 part 2.
+H264_ENCODERS = ("libx264", "libopenh264", "h264_videotoolbox", "h264_mf", "h264_nvenc", "h264_qsv", "h264_amf")
+_encoder_cache: dict[str, str] = {}
+
+
+def _encoders(ffmpeg: str) -> set[str]:
+    try:
+        out = subprocess.run([ffmpeg, "-hide_banner", "-encoders"], capture_output=True, text=True,
+                             timeout=30).stdout
+    except Exception:
+        return set()
+    return {ln.split()[1] for ln in out.splitlines() if len(ln.split()) > 1 and ln.startswith(" V")}
+
+
+def _encoder_works(ffmpeg: str, name: str) -> bool:
+    try:
+        r = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                            "color=c=black:s=128x128:d=0.2", "-c:v", name, "-f", "null", "-"],
+                           capture_output=True, timeout=30)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def video_encoder(ffmpeg: str) -> str:
+    """The H.264 encoder this ffmpeg can use (``mpeg4`` when it has none that works)."""
+    if ffmpeg not in _encoder_cache:
+        have = _encoders(ffmpeg)
+        pick = "mpeg4"
+        for name in H264_ENCODERS:
+            if name in have and (name == "libx264" or _encoder_works(ffmpeg, name)):
+                pick = name
+                break
+        if pick != "libx264":
+            sys.stderr.write(f"sciview: this ffmpeg has no libx264; MP4 files are encoded with {pick}\n")
+        _encoder_cache[ffmpeg] = pick
+    return _encoder_cache[ffmpeg]
+
+
+def h264_args(encoder: str, crf: int, preset: str, size: tuple[int, int], fps: float) -> list[str]:
+    if encoder == "libx264":
+        return ["-c:v", "libx264", "-preset", preset, "-crf", str(int(crf)), "-pix_fmt", "yuv420p"]
+    # the others take a bit rate: about 0.1 bit per pixel at crf 18, halving every 6 steps
+    bits = size[0] * size[1] * max(fps, 1.0) * 0.1 * 2 ** ((18 - int(crf)) / 6)
+    rate = f"{max(200_000, int(bits)) // 1000}k"
+    return ["-c:v", encoder, "-b:v", rate, "-maxrate", rate, "-bufsize", rate, "-pix_fmt", "yuv420p"]
+
+
 def ffmpeg_command(ffmpeg: str, fmt: str, size: tuple[int, int], fps: float, output: Path, crf: int = 18,
                    preset: str = "medium", audio: Path | None = None, audio_offset: float = 0.0,
                    audio_volume: float = 1.0, duration: float | None = None, metadata: dict | None = None,
-                   *, alpha: bool = False, chapters: Path | None = None, subtitles: Path | None = None) -> list[str]:
+                   *, alpha: bool = False, chapters: Path | None = None, subtitles: Path | None = None,
+                   source: list[str] | None = None, copy_video: bool = False) -> list[str]:
     """The ffmpeg command that turns raw frames on stdin into ``output``.
 
     ``alpha``: frames are RGBA (ProRes 4444, VP9 with alpha). ``chapters``: an ffmetadata file with
     chapter markers. ``subtitles``: an .srt file embedded as a subtitle track (soft subtitles).
+    ``source`` replaces the raw frames with other input arguments and ``copy_video`` keeps that video as it
+    is (joining parts rendered separately).
     """
     w, h = size
     if alpha and fmt not in ("mov", "webm"):
         raise ExportError(f"{fmt.upper()} cannot be transparent; use .mov (ProRes 4444), .webm or PNG frames")
-    cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo",
-           "-pix_fmt", "rgba" if alpha else "rgb24", "-s", f"{w}x{h}", "-r", f"{fps:g}", "-i", "-"]
+    cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error"]
+    cmd += source or ["-f", "rawvideo", "-pix_fmt", "rgba" if alpha else "rgb24", "-s", f"{w}x{h}",
+                      "-r", f"{fps:g}", "-i", "-"]
     container = fmt in ("mp4", "webm", "mov")
     has_audio = audio is not None and container
     n_in = 1
@@ -134,20 +234,26 @@ def ffmpeg_command(ffmpeg: str, fmt: str, size: tuple[int, int], fps: float, out
         cmd += maps
     if subtitles is not None and container:
         cmd += ["-c:s", "webvtt" if fmt == "webm" else "mov_text", "-metadata:s:s:0", "language=eng"]
+    if copy_video and fmt in ("mp4", "webm", "mov"):
+        cmd += ["-c:v", "copy"]
     if fmt == "mp4":
-        cmd += ["-c:v", "libx264", "-preset", preset, "-crf", str(int(crf)), "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart"]
+        if not copy_video:
+            cmd += h264_args(video_encoder(ffmpeg), crf, preset, size, fps)
+        cmd += ["-movflags", "+faststart"]
         if has_audio:
             cmd += ["-c:a", "aac", "-b:a", "192k"]
     elif fmt == "webm":
-        cmd += ["-c:v", "libvpx-vp9", "-crf", str(min(63, int(crf) + 14)), "-b:v", "0", "-row-mt", "1",
-                "-pix_fmt", "yuva420p" if alpha else "yuv420p"]
-        if alpha:
-            cmd += ["-auto-alt-ref", "0"]
+        if not copy_video:
+            cmd += ["-c:v", "libvpx-vp9", "-crf", str(min(63, int(crf) + 14)), "-b:v", "0", "-row-mt", "1",
+                    "-pix_fmt", "yuva420p" if alpha else "yuv420p"]
+            if alpha:
+                cmd += ["-auto-alt-ref", "0"]
         if has_audio:
             cmd += ["-c:a", "libopus", "-b:a", "160k"]
     elif fmt == "mov":
-        if alpha:
+        if copy_video:
+            pass
+        elif alpha:
             cmd += ["-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le", "-alpha_bits", "16"]
         else:
             cmd += ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le"]
@@ -314,7 +420,8 @@ def export(project: Project, output: str | os.PathLike, *, fps: float | None = N
            crf: int | None = None, preset: str = "medium", start: float | None = None, end: float | None = None,
            workers: int | None = None, audio: bool = True, subtitles: bool | str = False,
            transparent: bool = False, target: str | None = None, crop=None, chapters: bool = True,
-           time: float | None = None, scene=None, progress: Callable[[int, int, float], None] | None = None,
+           time: float | None = None, scene=None, part: tuple[int, int] | str | None = None,
+           progress: Callable[[int, int, float], None] | None = None,
            cancel: threading.Event | None = None) -> Path:
     """Render ``project`` to ``output``. The format follows the extension: .mp4 .webm .mov .gif, a folder for
     PNG frames, .png/.jpg for one still, .html for a web page with a player, .pptx for slides.
@@ -328,6 +435,8 @@ def export(project: Project, output: str | os.PathLike, *, fps: float | None = N
     video; True means this), ``"soft"`` (a subtitle track instead of captions drawn in the picture) or
     ``"embed"`` (both drawn and as a track). Scenes marked as chapters become chapter markers.
     ``scene`` renders one scene on its own (its own time, no transitions), with its sound.
+    ``part=(i, n)`` (or ``"i/n"``) renders only the i-th of n equal pieces, video alone, so several computers
+    can share a long render; :func:`join` puts the pieces together with the sound, chapters and subtitles.
     ``progress(done, total, eta_seconds)`` is called after each frame.
     """
     from .render import out_size
@@ -386,13 +495,25 @@ def export(project: Project, output: str | os.PathLike, *, fps: float | None = N
     t1_film = min(length, float(end)) if end is not None else length
     n0 = int(round(t0_film * fps))
     n1 = max(n0 + 1, int(round(t1_film * fps)))
+    if part is not None:
+        i_part, n_parts = parse_part(part)
+        n0, n1 = (n0 + (n1 - n0) * (i_part - 1) // n_parts, n0 + (n1 - n0) * i_part // n_parts)
+        if n1 <= n0:
+            raise ExportError(f"part {i_part}/{n_parts} has no frames; use fewer parts")
+        audio, chapters = False, False             # the sound, chapters and subtitle track come with join()
+        if fmt == "gif":
+            raise ExportError("GIFs cannot be rendered in parts")
     times = [i / fps for i in range(n0, n1)]
     total = len(times)
     W, H = out_size(project, scale)
     if rect is not None:
         s_px = W / project.size[0]
         W, H = int(round(rect[2] * s_px / 2)) * 2, int(round(rect[3] * s_px / 2)) * 2
-    workers = default_workers() if workers is None else max(1, int(workers))
+    if workers is None:
+        workers = workers_for((W, H))
+        if workers < default_workers():
+            sys.stderr.write(f"sciview: {W}x{H} frames need much memory; rendering with {workers} processes\n")
+    workers = max(1, int(workers))
     if uses_script_figures(project):
         workers = 1          # figure functions live in this process; render processes cannot call them
     out.parent.mkdir(parents=True, exist_ok=True) if fmt != "png" else out.mkdir(parents=True, exist_ok=True)
@@ -444,7 +565,7 @@ def export(project: Project, output: str | os.PathLike, *, fps: float | None = N
             chapters_path = Path(tmp.name) / "chapters.txt"
             chapters_path.write_text(chapters_metadata(marks, t0_film, t1_film), encoding="utf-8")
         subs_path = None
-        if mode in ("soft", "embed") and caps and fmt != "gif":
+        if mode in ("soft", "embed") and caps and fmt != "gif" and part is None:
             subs_path = Path(tmp.name) / "captions.srt"
             subs_path.write_text(srt_text(caps, t0_film, t1_film), encoding="utf-8")
         meta = {"title": project.settings.get("title"), "artist": project.settings.get("author"),
@@ -473,9 +594,81 @@ def export(project: Project, output: str | os.PathLike, *, fps: float | None = N
         tmp.cleanup()
     if code != 0:
         raise ExportError(f"ffmpeg failed ({code}): {err.decode(errors='ignore').strip()[-800:]}")
-    if mode in ("file", "soft", "embed") and caps:
+    if mode in ("file", "soft", "embed") and caps and part is None:
         out.with_suffix(".srt").write_text(srt_text(caps, t0_film, t1_film), encoding="utf-8")
         out.with_suffix(".vtt").write_text(srt_text(caps, t0_film, t1_film, vtt=True), encoding="utf-8")
+    return out
+
+
+def parse_part(part) -> tuple[int, int]:
+    """(i, n) from ``(i, n)`` or ``"i/n"``, checked."""
+    try:
+        i, n = (part.split("/") if isinstance(part, str) else part)
+        i, n = int(i), int(n)
+    except (TypeError, ValueError):
+        raise ExportError(f"a part is written i/n, e.g. 2/4, not {part!r}") from None
+    if not (1 <= i <= n):
+        raise ExportError(f"part {i}/{n}: i must be between 1 and {n}")
+    return i, n
+
+
+def join(project: Project, parts: list[str | os.PathLike], output: str | os.PathLike, *, audio: bool = True,
+         chapters: bool = True, subtitles: bool | str = False, start: float | None = None,
+         end: float | None = None, scene=None) -> Path:
+    """Join pieces rendered with ``export(..., part=(i, n))`` into one video, in the order given, without
+    re-encoding, and add the film's sound, chapter markers and subtitles. ``start``, ``end`` and ``scene``
+    must be those the pieces were rendered with."""
+    import tempfile
+    out = Path(output)
+    fmt = detect_format(out)
+    files = [Path(p) for p in parts]
+    if fmt not in ("mp4", "webm", "mov"):
+        raise ExportError("only .mp4, .webm and .mov pieces can be joined (PNG frames need no joining)")
+    for f in files:
+        if not f.is_file():
+            raise ExportError(f"piece not found: {f}")
+        if f.suffix.lower() != out.suffix.lower():
+            raise ExportError(f"{f.name} is not a {out.suffix} file; pieces and the result must be the same format")
+    if not files:
+        raise ExportError("no pieces to join")
+    mode = "file" if subtitles is True else ("off" if not subtitles else str(subtitles))
+    if mode not in SUBTITLE_MODES:
+        raise ExportError(f"subtitles must be one of {', '.join(SUBTITLE_MODES)}")
+    only = project.get_scene(scene) if scene is not None else None
+    length = only.duration if only is not None else project.duration
+    t0 = max(0.0, float(start or 0.0))
+    t1 = min(length, float(end)) if end is not None else length
+    caps = project.captions(only)
+    with tempfile.TemporaryDirectory(prefix="sciview-join-") as tmp:
+        listing = Path(tmp) / "parts.txt"
+        listing.write_text("".join("file '" + str(f.resolve()).replace("'", "'\\''") + "'\n" for f in files),
+                           encoding="utf-8")
+        audio_path = None
+        from . import audio as audio_mod
+        if audio and audio_mod.has_sound(project):
+            pcm = audio_mod.mix(project, t0, t1, scene=only)
+            if len(pcm) and np.abs(pcm).max() > 0:
+                audio_path = audio_mod.write_wav(Path(tmp) / "sound.wav", pcm)
+        chapters_path = None
+        if chapters and only is None and sum(1 for sc in project.scenes if sc.chapter) > 1:
+            chapters_path = Path(tmp) / "chapters.txt"
+            chapters_path.write_text(chapters_metadata(project.chapters(), t0, t1), encoding="utf-8")
+        subs_path = None
+        if mode in ("soft", "embed") and caps:
+            subs_path = Path(tmp) / "captions.srt"
+            subs_path.write_text(srt_text(caps, t0, t1), encoding="utf-8")
+        meta = {"title": project.settings.get("title"), "artist": project.settings.get("author"),
+                "comment": "Made with SciView"}
+        cmd = ffmpeg_command(find_ffmpeg(), fmt, project.size, project.fps, out, audio=audio_path,
+                             duration=t1 - t0, metadata=meta, chapters=chapters_path, subtitles=subs_path,
+                             source=["-f", "concat", "-safe", "0", "-i", str(listing)], copy_video=True)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(cmd, capture_output=True)
+    if r.returncode != 0:
+        raise ExportError(f"ffmpeg could not join the pieces: {r.stderr.decode(errors='ignore').strip()[-800:]}")
+    if mode in ("file", "soft", "embed") and caps:
+        out.with_suffix(".srt").write_text(srt_text(caps, t0, t1), encoding="utf-8")
+        out.with_suffix(".vtt").write_text(srt_text(caps, t0, t1, vtt=True), encoding="utf-8")
     return out
 
 

@@ -144,9 +144,19 @@ export function objById(id) {
   return S.project.objects.find((o) => o.id === id) || null;
 }
 
+const missingSchemas = {};
+
+/** The schema of an object; a type this editor does not know (a plugin that is not installed, a newer
+ * SciView) gets one with no properties, so the object keeps its row, timing and scene and is saved unchanged. */
 export function schemaOf(obj) {
   if (!obj) return null;
-  return obj.type === 'camera' ? S.cameraSchema : S.types[obj.type];
+  if (obj.type === 'camera') return S.cameraSchema;
+  return S.types[obj.type] || (missingSchemas[obj.type] ||= {
+    type: obj.type, label: `Missing: ${obj.type}`, category: 'Missing', icon: 'warning', is3d: false, props: [],
+    description: `SciView does not know the object type “${obj.type}”: it needs a plugin that is not installed, or a newer SciView. It is kept in the file but not drawn.`,
+    effects: ['none', 'fade', 'slide_up', 'slide_down', 'slide_left', 'slide_right', 'pop'],
+    default_enter: 'none', default_exit: 'none', default_duration: null, missing: true,
+  });
 }
 
 export function propSchema(obj, name) {

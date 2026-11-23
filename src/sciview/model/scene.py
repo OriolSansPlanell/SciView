@@ -31,12 +31,16 @@ class Scene:
         self.id = str(id)
         self.name = name or self.id
         self.duration = max(0.1, float(duration))
+        if not self.duration < 1e6:
+            raise ValueError(f"a scene of {duration} s")
         self.transition = "cut"
+        self.transition_duration = 1.0
         self.set_transition(transition, transition_duration)
         self.chapter = bool(chapter)
         self.notes = str(notes or "")
         self.camera = camera or CameraRig(id="camera", name="Camera")
         self._project = project
+        self.extra: dict[str, Any] = {}          # parts of the file this version does not know (kept)
 
     def set_transition(self, kind: str, duration: float | None = None) -> Scene:
         if kind not in TRANSITIONS:
@@ -80,6 +84,8 @@ class Scene:
             d["notes"] = self.notes
         if with_camera:
             d["camera"] = camera_json(self.camera)
+        for k, v in self.extra.items():
+            d.setdefault(k, copy.deepcopy(v))
         return d
 
     @classmethod
@@ -98,10 +104,15 @@ class Scene:
                                   tracks=cam.get("tracks"))
         if trans not in TRANSITIONS and project is not None:
             project.warnings.append(f"scene {sc.name!r}: unknown transition {trans!r}, using a cut")
+        sc.extra = {k: copy.deepcopy(v) for k, v in d.items() if k not in SCENE_FIELDS}
         return sc
 
     def __repr__(self) -> str:
         return f"<Scene {self.id!r} {self.name!r} {self.duration:g}s>"
+
+
+SCENE_FIELDS = frozenset({"id", "name", "duration", "transition", "transition_duration", "chapter", "notes",
+                          "camera"})
 
 
 def camera_json(cam: CameraRig) -> dict:

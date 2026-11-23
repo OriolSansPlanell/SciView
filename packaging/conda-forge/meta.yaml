@@ -1,0 +1,56 @@
+{% set name = "sciview" %}
+{% set version = "1.0.0" %}
+
+# Recipe for conda-forge. To publish: fork https://github.com/conda-forge/staged-recipes, copy this file to
+# recipes/sciview/meta.yaml, fill in the sha256 of the PyPI source archive
+# (pip download sciview==1.0.0 --no-deps --no-binary :all: ; sha256sum sciview-1.0.0.tar.gz)
+# and open a pull request. After that, conda-forge's bot proposes an update for every new PyPI release.
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/sciview-{{ version }}.tar.gz
+  sha256: FILL_IN_FROM_PYPI
+
+build:
+  noarch: python
+  number: 0
+  script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  entry_points:
+    - sciview = sciview.cli:main
+
+requirements:
+  host:
+    - python {{ python_min }}
+    - pip
+    - setuptools >=77
+  run:
+    - python >={{ python_min }}
+    - numpy >=1.22
+    - py-opencv >=4.6
+    - pillow >=9.2
+    - imageio-ffmpeg >=0.4.7
+    - matplotlib-base >=3.5
+
+test:
+  requires:
+    - python {{ python_min }}
+  imports:
+    - sciview
+  commands:
+    - sciview --version
+    - sciview info
+
+about:
+  home: https://github.com/OriolSansPlanell/SciView
+  summary: Make clear, beautiful scientific explainer videos with a visual editor or a few lines of Python.
+  license: MIT
+  license_file: LICENSE
+  doc_url: https://oriolsansplanell.github.io/SciView/
+  dev_url: https://github.com/OriolSansPlanell/SciView
+
+extra:
+  recipe-maintainers:
+    - OriolSansPlanell

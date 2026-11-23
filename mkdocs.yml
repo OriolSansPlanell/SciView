@@ -1,5 +1,6 @@
 site_name: SciView
 site_description: Make clear, beautiful scientific explainer videos.
+site_url: https://oriolsansplanell.github.io/SciView/
 repo_url: https://github.com/OriolSansPlanell/SciView
 edit_uri: edit/main/docs/
 theme:
@@ -18,8 +19,12 @@ nav:
   - Python guide: python-api.md
   - Object reference: objects.md
   - Rendering and sharing: rendering.md
+  - Notebooks: jupyter.md
   - AI assistants: agent.md
+  - Plugins: plugins.md
+  - Gallery: gallery.md
   - Project file format: file-format.md
+  - Stability: stability.md
   - Troubleshooting: troubleshooting.md
 markdown_extensions:
   - tables

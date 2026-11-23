@@ -1,0 +1,246 @@
+{
+  "sciview": "1.0",
+  "settings": {
+    "title": "Lenses and mirrors",
+    "author": "",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 14.0,
+    "background": "#03070e",
+    "background2": "#111a2c",
+    "background_style": "radial",
+    "stars": 0.15,
+    "vignette": 0.35,
+    "bloom": 0.7,
+    "font": "Poppins",
+    "theme": "",
+    "logo": "",
+    "logo_position": "bottom-right",
+    "logo_size": 160.0,
+    "logo_margin": 40.0,
+    "logo_opacity": 0.9,
+    "logo_scenes": "all",
+    "audio": "",
+    "audio_offset": 0.0,
+    "audio_volume": 1.0,
+    "crop_x": -1.0
+  },
+  "palette": {
+    "teal": "#4fd1c5",
+    "gold": "#ffcf4a",
+    "amber": "#f5a23c",
+    "blue": "#6cb4fc",
+    "ice": "#a5e4fc",
+    "cream": "#f3ead8",
+    "red": "#ff6b6b",
+    "violet": "#c38cff",
+    "green": "#7ee08a",
+    "white": "#ffffff",
+    "gray": "#8b95a7",
+    "navy": "#10182a"
+  },
+  "camera": {
+    "props": {
+      "target": [
+        0,
+        0,
+        0
+      ],
+      "distance": 150.0,
+      "azimuth": -60.0,
+      "elevation": 22.0,
+      "fov": 30.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "keys": {}
+  },
+  "objects": [
+    {
+      "id": "title1",
+      "type": "title",
+      "name": "Title",
+      "props": {
+        "text": "Lenses and mirrors",
+        "subtitle": "Rays traced through thin lenses and curved mirrors"
+      },
+      "start": 0.2,
+      "end": 3.2,
+      "enter": {
+        "effect": "slide_up",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "arrow1",
+      "type": "arrow",
+      "name": "Optical axis",
+      "props": {
+        "tail": [
+          80.0,
+          470.0
+        ],
+        "tip": [
+          1840.0,
+          470.0
+        ],
+        "color": "gray",
+        "width": 1.2,
+        "heads": "none",
+        "dashed": true
+      },
+      "start": 2.6,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "lens1",
+      "type": "lens",
+      "name": "Converging lens",
+      "props": {
+        "position": [
+          620.0,
+          470.0
+        ],
+        "focal": 260.0
+      },
+      "start": 2.8,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "rays1",
+      "type": "rays",
+      "name": "Parallel beam",
+      "props": {
+        "source": [
+          120.0,
+          470.0
+        ],
+        "spread": 180.0,
+        "count": 9
+      },
+      "start": 3.4,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 3.0
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption1",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "A converging lens sends a parallel beam through its focal point F."
+      },
+      "start": 3.4,
+      "end": 7.6,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "mirror1",
+      "type": "mirror",
+      "name": "Concave mirror",
+      "props": {
+        "position": [
+          1640.0,
+          470.0
+        ],
+        "height": 600.0,
+        "radius": 900.0
+      },
+      "start": 7.4,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption2",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "A concave mirror turns the light back and brings it together again."
+      },
+      "start": 7.6,
+      "end": 13.8,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "wavefront1",
+      "type": "wavefront",
+      "name": "Wavefronts",
+      "props": {
+        "source": [
+          120.0,
+          470.0
+        ],
+        "kind": "plane",
+        "wavelength": 36.0,
+        "extent": 260.0,
+        "range": 470.0
+      },
+      "start": 3.4,
+      "end": 7.4,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    }
+  ],
+  "template": {
+    "title": "Lenses and mirrors",
+    "description": "A parallel beam focused by a lens and a concave mirror, with wavefronts.",
+    "order": 45,
+    "thumb_time": 10.0
+  }
+}

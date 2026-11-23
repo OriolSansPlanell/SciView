@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import itertools
+import math
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -233,14 +234,32 @@ class SceneObject:
         self.locked = bool(locked)
         self.warnings: list[str] = []
         self.tracks: dict[str, dict] = {}
+        # parts of the file this SciView does not know (a newer version, a plugin): kept and written back
+        self.extra_props: dict[str, Any] = {}
+        self.extra_keys: dict[str, Any] = {}
+        self.extra_tracks: dict[str, Any] = {}
+        self.extra_fields: dict[str, Any] = {}
+        known = self.prop_map()
         for k, v in (props or {}).items():
+            if k not in known:
+                self.extra_props[k] = copy.deepcopy(v)
+                self.warnings.append(f"{self.name}: unknown property {k!r} is kept in the file but not used")
+                continue
             self.set(k, v, strict=False)
         for k, tr in (tracks or {}).items():
+            if k not in known:
+                self.extra_tracks[k] = copy.deepcopy(tr)
+                continue
             try:
                 self.track(k, **tr)
             except (KeyError, ValueError, TypeError) as exc:
                 self.warnings.append(f"{self.name}: ignored the data track of {k!r} ({exc})")
         for k, ks in (keys or {}).items():
+            if k not in known:
+                self.extra_keys[k] = copy.deepcopy(ks)
+                if k not in self.extra_props:
+                    self.warnings.append(f"{self.name}: keyframes of unknown property {k!r} are kept but not used")
+                continue
             for kf in ks:
                 try:
                     self.key(k, kf.get("t", 0), kf.get("v"), kf.get("ease", "smooth"), kf.get("bez"))
@@ -523,9 +542,10 @@ class SceneObject:
     def to_json(self) -> dict:
         d: dict[str, Any] = {"id": self.id, "type": self.TYPE, "name": self.name}
         defaults = {p.name: p.default for p in self.all_props()}
-        d["props"] = {k: v for k, v in self.props.items() if v != defaults.get(k)}
-        if self.keys:
-            d["keys"] = copy.deepcopy(self.keys)
+        d["props"] = {**copy.deepcopy(self.extra_props),
+                      **{k: v for k, v in self.props.items() if v != defaults.get(k)}}
+        if self.keys or self.extra_keys:
+            d["keys"] = {**copy.deepcopy(self.extra_keys), **copy.deepcopy(self.keys)}
         d["start"] = self.start
         d["end"] = self.end
         d["enter"] = {"effect": self.enter_effect, "duration": self.enter_duration}
@@ -536,22 +556,37 @@ class SceneObject:
             d["locked"] = True
         if self.parent:
             d["parent"] = self.parent
-        if self.tracks:
-            d["tracks"] = copy.deepcopy(self.tracks)
+        if self.tracks or self.extra_tracks:
+            d["tracks"] = {**copy.deepcopy(self.extra_tracks), **copy.deepcopy(self.tracks)}
         if self.scene:
             d["scene"] = self.scene
+        for k, v in self.extra_fields.items():
+            d.setdefault(k, copy.deepcopy(v))
         return d
 
     @classmethod
     def from_json(cls, d: dict) -> SceneObject:
+        """An object from its JSON. A type this SciView does not know (a plugin that is not installed, an
+        object from a newer version) becomes a :class:`MissingObject`, which keeps the data unchanged."""
+        if not isinstance(d, dict):
+            raise ValueError("an object must be a JSON object")
         typ = d.get("type")
         klass = REGISTRY.get(typ)
         if klass is None:
-            raise ValueError(f"unknown object type {typ!r}. Known types: {', '.join(sorted(REGISTRY))}")
-        return klass(id=d.get("id"), name=d.get("name"), props=d.get("props"), keys=d.get("keys"),
-                     start=d.get("start", 0.0), end=d.get("end"), enter=d.get("enter"), exit=d.get("exit"),
-                     visible=d.get("visible", True), locked=d.get("locked", False), parent=d.get("parent"),
-                     tracks=d.get("tracks"), scene=d.get("scene"))
+            if not isinstance(typ, str) or not typ:
+                raise ValueError(f"an object without a type was ignored: {str(d)[:80]}")
+            return MissingObject(d)
+        try:
+            obj = klass(id=d.get("id"), name=d.get("name"), props=d.get("props"), keys=d.get("keys"),
+                        start=d.get("start", 0.0), end=d.get("end"), enter=d.get("enter"), exit=d.get("exit"),
+                        visible=d.get("visible", True), locked=d.get("locked", False), parent=d.get("parent"),
+                        tracks=d.get("tracks"), scene=d.get("scene"))
+        except (TypeError, ValueError, AttributeError, KeyError, IndexError, OverflowError) as exc:
+            return MissingObject(d, damaged=f"{type(exc).__name__}: {exc}")
+        if not (math.isfinite(obj.start) and (obj.end is None or math.isfinite(obj.end))):
+            return MissingObject(d, damaged="its start or end time is not a number")
+        obj.extra_fields = {k: copy.deepcopy(v) for k, v in d.items() if k not in OBJECT_FIELDS}
+        return obj
 
     def copy(self, new_id: str | None = None) -> SceneObject:
         d = self.to_json()
@@ -560,6 +595,100 @@ class SceneObject:
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.id!r} {self.name!r}>"
+
+
+OBJECT_FIELDS = frozenset({"id", "type", "name", "props", "keys", "start", "end", "enter", "exit", "visible",
+                           "locked", "parent", "tracks", "scene"})
+
+
+class MissingObject(SceneObject):
+    """An object of a type this SciView does not know: a plugin that is not installed, or an object written by
+    a newer version. It draws nothing, keeps its timing, scene and group editable, and is written back with
+    everything else unchanged, so opening and saving a film never loses it."""
+
+    TYPE = "missing"
+    LABEL = "Missing object"
+    CATEGORY = "Missing"
+    ICON = "warning"
+    PROPS: ClassVar[list[Prop]] = []
+    DEFAULT_ENTER = "none"
+    DEFAULT_EXIT = "none"
+    HAS_LABEL = False
+
+    def __init__(self, raw: dict, damaged: str = ""):
+        self.raw = copy.deepcopy(raw)
+
+        def num(v, default):
+            try:
+                v = float(v)
+            except (TypeError, ValueError, OverflowError):
+                return default
+            return v if math.isfinite(v) else default
+
+        def effect(e):
+            if not isinstance(e, dict):
+                return None
+            name = e.get("effect")
+            return {"effect": name if name in ENTER_EFFECTS + ("draw", "typewriter") else "none",
+                    "duration": max(0.0, num(e.get("duration"), 0.6))}
+
+        def text(v):
+            return v if isinstance(v, str) and v else None
+
+        end = raw.get("end")
+        super().__init__(id=text(raw.get("id")), name=text(raw.get("name")) or str(raw.get("type")),
+                         start=num(raw.get("start"), 0.0), end=None if end is None else num(end, None),
+                         enter=effect(raw.get("enter")), exit=effect(raw.get("exit")),
+                         visible=raw.get("visible", True) is not False, locked=raw.get("locked") is True,
+                         parent=text(raw.get("parent")), scene=text(raw.get("scene")))
+        self.TYPE = str(raw.get("type"))                 # the type as written in the file
+        self.damaged = damaged
+        if not text(raw.get("id")):
+            self.id = f"{self.TYPE}{next(_id_counter)}"
+        self._loaded = self._timing()
+        if damaged:
+            self.warnings.append(f"{self.name}: could not be read ({damaged}); it is kept in the file as it is "
+                                 f"but not drawn")
+        else:
+            self.warnings.append(f"{self.name}: SciView does not know the object type {self.TYPE!r} (a plugin "
+                                 f"that is not installed, or a newer SciView); it is kept in the file but not drawn")
+
+    def set(self, name: str, value: Any, strict: bool = True) -> SceneObject:
+        if strict:
+            raise KeyError(f"{self.name} is of type {self.TYPE!r}, which this SciView does not know; "
+                           f"its properties cannot be changed here")
+        return self
+
+    def key(self, name: str, t: float, value: Any = None, ease: str = "smooth", bez=None) -> SceneObject:
+        raise KeyError(f"{self.name} is of type {self.TYPE!r}, which this SciView does not know")
+
+    def draw(self, cv, ctx, v, st):
+        return None
+
+    def _timing(self) -> dict:
+        return {"start": self.start, "end": self.end,
+                "enter": {"effect": self.enter_effect, "duration": self.enter_duration},
+                "exit": {"effect": self.exit_effect, "duration": self.exit_duration}}
+
+    def to_json(self) -> dict:
+        d = copy.deepcopy(self.raw)
+        d.update({"id": self.id, "type": self.TYPE, "name": self.name})
+        for k, v in self._timing().items():                 # written when in the file or changed here
+            if k in self.raw or v != self._loaded[k]:
+                d[k] = v
+        for field, value, default in (("visible", self.visible, True), ("locked", self.locked, False),
+                                      ("parent", self.parent, None), ("scene", self.scene, None)):
+            if value != default:
+                d[field] = value
+            else:
+                d.pop(field, None)
+        return d
+
+    @classmethod
+    def schema(cls) -> dict:
+        d = super().schema()
+        d["effects"] = list(ENTER_EFFECTS)
+        return d
 
 
 class Values:

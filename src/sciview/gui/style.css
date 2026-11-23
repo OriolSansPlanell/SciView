@@ -460,3 +460,7 @@ textarea.script { width: 100%; resize: vertical; min-height: 140px; padding: 8px
 .as-input textarea { flex: 1; resize: none; min-height: 38px; max-height: 160px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--ink-0); line-height: 1.4; }
 .as-input .icon-btn { width: 36px; height: 36px; border-radius: var(--r-s); background: var(--teal-dim); color: var(--teal); }
 .as-settings .field input, .as-settings .field select { width: 100%; }
+
+/* help dialog: bug report */
+.report-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.tl-label:focus-visible { outline: 2px solid var(--teal); outline-offset: -2px; }

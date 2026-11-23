@@ -16,10 +16,11 @@ from ..engine.camera import Camera
 from ..engine.color import DEFAULT_PALETTE, LIGHT_PALETTE
 from ..engine.text import FAMILIES, plain_text
 from ..engine.transitions import TRANSITIONS
-from .base import REGISTRY, Prop, SceneObject
+from .base import REGISTRY, MissingObject, Prop, SceneObject
+from .migrate import FORMAT_VERSION, compatibility, migrate
 from .scene import Scene, SceneView, camera_json
 
-FORMAT_VERSION = "1.0"
+PROJECT_FIELDS = frozenset({"sciview", "settings", "palette", "camera", "objects", "scenes", "styles"})
 
 SETTINGS_PROPS: list[Prop] = [
     Prop("title", "text", "Untitled film", group="Film"),
@@ -74,6 +75,32 @@ class CameraRig(SceneObject):
         return list(cls.PROPS)
 
 
+def _exists(p: Path) -> bool:
+    """Path.exists that says False for names the system cannot even look up (too long, bad characters)."""
+    try:
+        return p.exists()
+    except (OSError, ValueError):
+        return False
+
+
+def _short(text, n: int = 120) -> str:
+    text = str(text)
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
+def _camera(cam: dict, proj=None) -> CameraRig:
+    """A camera from its JSON; damaged parts are reported on ``proj`` and replaced by defaults."""
+    def d(v):
+        return v if isinstance(v, dict) else None
+    try:
+        return CameraRig(id="camera", name="Camera", props=d(cam.get("props")), keys=d(cam.get("keys")),
+                         tracks=d(cam.get("tracks")))
+    except (TypeError, ValueError, AttributeError, KeyError, IndexError) as exc:
+        if proj is not None:
+            proj.warnings.append(f"the camera could not be read ({exc}); using the default camera")
+        return CameraRig(id="camera", name="Camera")
+
+
 class Project:
     """A SciView film.
 
@@ -95,6 +122,9 @@ class Project:
         self.objects: list[SceneObject] = []
         self.path: Path | None = Path(path) if path else None
         self.warnings: list[str] = []
+        self.notes: list[str] = []                  # what happened when the file was opened (conversions)
+        self.extra: dict[str, Any] = {}             # top-level parts of the file this version does not know
+        self.extra_settings: dict[str, Any] = {}    # settings this version does not know (kept, not used)
         self._renderer = None
         self._check_assets = None
         for k, v in settings.items():
@@ -485,6 +515,12 @@ class Project:
         Image.fromarray(img).save(path)
         return Path(path)
 
+    def preview(self, fps: float = 10.0, scale: float = 0.25, start: float = 0.0, end: float | None = None,
+                scene=None):
+        """A preview to scrub through in a Jupyter notebook (see :func:`sciview.jupyter.preview`)."""
+        from ..jupyter import preview
+        return preview(self, fps=fps, scale=scale, start=start, end=end, scene=scene)
+
     def render(self, output: str | os.PathLike, **options) -> Path:
         """Render the film. See :func:`sciview.export.export` for options (fps, scale, crf, workers ...)."""
         from ..export import export
@@ -558,8 +594,8 @@ class Project:
                             add(f"{o.name}: no files match {val}", o, p.name)
                     else:
                         f = Path(val) if Path(val).is_absolute() else self.base_dir / val
-                        if not f.exists():
-                            add(f"{o.name}: file not found: {val}", o, p.name)
+                        if not _exists(f):
+                            add(f"{o.name}: file not found: {_short(val)}", o, p.name)
                 if p.kind == "ref" and val and val not in ids:
                     add(f"{o.name}: {p.label} points to a missing object {val!r}", o, p.name)
                 elif p.kind == "ref" and val and p.ref and self.find(val).TYPE != p.ref:
@@ -605,7 +641,7 @@ class Project:
                     add(f"{o.name}: choose a table for the data track of {label}", o, name)
                     continue
                 f = Path(tr["data"]) if Path(tr["data"]).is_absolute() else self.base_dir / tr["data"]
-                if not f.exists():
+                if not _exists(f):
                     add(f"{o.name}: the data track of {label} needs a missing file: {tr['data']}", o, name)
                     continue
                 try:
@@ -613,10 +649,10 @@ class Project:
                 except (ValueError, KeyError, OSError) as exc:
                     add(f"{o.name}: data track of {label}: {exc}", o, name)
         a = self.settings.get("audio")
-        if a and not (self.base_dir / a).exists() and not Path(a).exists():
+        if a and not _exists(self.base_dir / a) and not _exists(Path(a)):
             add(f"audio file not found: {a}", None, "audio")
         font = self.settings.get("font")
-        if font not in FAMILIES and not Path(font).is_file():
+        if font not in FAMILIES and not _exists(Path(font)):
             add(f"font {font!r} is neither a bundled family ({', '.join(FAMILIES)}) nor a font file", None, "font")
         return out
 
@@ -632,7 +668,7 @@ class Project:
             objects.append(d)
         out = {
             "sciview": FORMAT_VERSION,
-            "settings": dict(self.settings),
+            "settings": {**copy.deepcopy(self.extra_settings), **self.settings},
             "palette": dict(self.palette),
             "camera": camera_json(self.scenes[0].camera),       # the first scene's camera
             "objects": objects,
@@ -642,33 +678,60 @@ class Project:
         first = self.scenes[0]
         if not one or first.name != "Scene 1" or first.notes or not first.chapter or first.id != "scene1":
             out["scenes"] = [sc.to_json(with_camera=i > 0) for i, sc in enumerate(self.scenes)]
+        for k, v in self.extra.items():
+            out.setdefault(k, copy.deepcopy(v))
         return out
 
     @classmethod
     def from_json(cls, data: dict, path: str | os.PathLike | None = None) -> Project:
         if not isinstance(data, dict):
             raise ValueError("a SciView project is a JSON object")
-        ver = str(data.get("sciview", FORMAT_VERSION))
         proj = cls(path=path)
-        if ver.split(".")[0] != FORMAT_VERSION.split(".")[0]:
-            proj.warnings.append(f"project was written by format {ver}; this SciView reads {FORMAT_VERSION}")
-        for k, v in (data.get("settings") or {}).items():
+        data, proj.notes = migrate(data)
+        warn = compatibility(data.get("sciview", FORMAT_VERSION))
+        if warn:
+            proj.warnings.append(warn)
+        proj.extra = {k: copy.deepcopy(v) for k, v in data.items() if k not in PROJECT_FIELDS}
+
+        def part(key, kind, what):
+            value = data.get(key)
+            if value is None or isinstance(value, kind):
+                return value
+            proj.warnings.append(f"the {what} in the file could not be read and were left out")
+            return None
+
+        for k, v in (part("settings", dict, "settings") or {}).items():
             if k in SETTINGS_MAP:
-                proj.settings[k] = SETTINGS_MAP[k].coerce(v)
+                sp = SETTINGS_MAP[k]
+                value = sp.coerce(v)
+                if sp.kind in ("number", "int") and not (sp.min is None or sp.min <= value) or \
+                        sp.kind in ("number", "int") and not (sp.max is None or value <= sp.max):
+                    proj.warnings.append(f"setting {k!r} = {_short(v, 40)} is out of range; using {sp.default}")
+                    value = copy.deepcopy(sp.default)
+                proj.settings[k] = value
             else:
-                proj.warnings.append(f"ignored unknown setting {k!r}")
-        if data.get("palette"):
-            proj.palette = {str(k).lower(): str(v) for k, v in data["palette"].items()}
-        if isinstance(data.get("styles"), dict):
-            proj.styles = {k: dict(v) for k, v in data["styles"].items() if isinstance(v, dict) and k in REGISTRY}
-        cam = data.get("camera") or {}
-        first_cam = CameraRig(id="camera", name="Camera", props=cam.get("props"), keys=cam.get("keys"),
-                              tracks=cam.get("tracks"))
-        scenes = data.get("scenes")
-        if isinstance(scenes, list) and scenes:
+                proj.extra_settings[k] = copy.deepcopy(v)
+                proj.warnings.append(f"unknown setting {k!r} is kept in the file but not used")
+        if not (isinstance(proj.settings["duration"], (int, float)) and 0.1 <= proj.settings["duration"] < 1e6):
+            proj.warnings.append("the film's length could not be read; using 10 s")
+            proj.settings["duration"] = 10.0
+        palette = part("palette", dict, "palette colours")
+        if palette:
+            proj.palette = {str(k).lower(): str(v) for k, v in palette.items()}
+        styles = part("styles", dict, "styles")
+        if styles:
+            proj.styles = {k: dict(v) for k, v in styles.items() if isinstance(v, dict)}
+        cam = part("camera", dict, "camera settings") or {}
+        first_cam = _camera(cam, proj)
+        scenes = part("scenes", list, "scenes")
+        if scenes:
             proj.scenes = []
             for i, sd in enumerate(scenes):
-                sc = Scene.from_json(sd if isinstance(sd, dict) else {}, proj, first_cam if i == 0 else None)
+                try:
+                    sc = Scene.from_json(sd if isinstance(sd, dict) else {}, proj, first_cam if i == 0 else None)
+                except (TypeError, ValueError, AttributeError, OverflowError) as exc:
+                    proj.warnings.append(f"scene {i + 1} could not be read ({exc}); it starts empty")
+                    sc = Scene(f"scene{i + 1}", f"Scene {i + 1}", camera=first_cam if i == 0 else None, project=proj)
                 if any(x.id == sc.id for x in proj.scenes):
                     proj.warnings.append(f"two scenes are called {sc.id!r}; the second was renamed")
                     sc.id = f"{sc.id}_{i + 1}"
@@ -679,20 +742,29 @@ class Project:
         proj._current = proj.scenes[-1].id
         scene_ids = {sc.id for sc in proj.scenes}
         seen: set[str] = set()
-        for od in data.get("objects") or []:
+        for i, od in enumerate(part("objects", list, "objects") or []):
             try:
                 obj = SceneObject.from_json(od)
             except ValueError as exc:
                 proj.warnings.append(str(exc))
                 continue
-            if obj.id in seen or obj.id == "camera":
+            except (TypeError, AttributeError, KeyError, IndexError, OverflowError) as exc:
+                # a damaged object is kept as it is in the file (not drawn), so saving does not lose it
+                try:
+                    obj = MissingObject(od, damaged=f"{type(exc).__name__}: {exc}")
+                except Exception:
+                    proj.warnings.append(f"object {i + 1} could not be read and was left out")
+                    continue
+            if not isinstance(obj.id, str) or obj.id in seen or obj.id == "camera":
                 obj.id = proj._unique_id(obj.TYPE)
             seen.add(obj.id)
-            if not obj.scene:
+            if not isinstance(obj.scene, str) or not obj.scene:
                 obj.scene = proj.scenes[0].id
             elif obj.scene not in scene_ids:
                 proj.warnings.append(f"{obj.name}: unknown scene {obj.scene!r}; moved to the first scene")
                 obj.scene = proj.scenes[0].id
+            if obj.parent is not None and not isinstance(obj.parent, str):
+                obj.parent = None
             proj.objects.append(obj)
         proj.settings["duration"] = proj.duration            # the scenes' total
         return proj
@@ -771,7 +843,8 @@ class Project:
 def all_schemas() -> dict:
     """Everything the editor needs to build its library, inspector and settings dialog."""
     order = ["3D scene", "Text", "Charts", "Imaging", "Optics", "Shapes & media", "Sound"]
-    types = sorted(REGISTRY.values(), key=lambda c: (order.index(c.CATEGORY) if c.CATEGORY in order else 9))
+    order += sorted({c.CATEGORY for c in REGISTRY.values()} - set(order))     # categories from plugins
+    types = sorted(REGISTRY.values(), key=lambda c: order.index(c.CATEGORY))
     return {
         "types": [c.schema() for c in types],
         "camera": CameraRig.schema(),

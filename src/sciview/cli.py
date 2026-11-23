@@ -1,4 +1,5 @@
-"""Command line: ``sciview edit | render | still | new | check | theme | templates | subtitles | mcp | info``."""
+"""Command line: ``sciview edit | render | still | new | check | theme | templates | subtitles | schema | mcp |
+plugin | join | info``."""
 from __future__ import annotations
 
 import argparse
@@ -38,7 +39,12 @@ def cmd_render(a) -> int:
     from .export import TARGETS
     stem = Path(a.project).name.split(".")[0]
     ext = TARGETS[a.target]["ext"] if a.target else "mp4"
-    out = a.output or f"{stem}{'_' + a.target if a.target else ''}.{ext}"
+    piece = ""
+    if a.part:
+        from .export import parse_part
+        i, n = parse_part(a.part)
+        piece = f".part{i}of{n}"
+    out = a.output or f"{stem}{'_' + a.target if a.target else ''}{piece}.{ext}"
     if a.theme:
         for note in proj.apply_theme(a.theme):
             print(f"  theme: {note}", file=sys.stderr)
@@ -47,11 +53,22 @@ def cmd_render(a) -> int:
     subs = a.subtitles if a.subtitles is not None else False
     path = export(proj, out, fps=a.fps, scale=a.scale, crf=a.crf, preset=a.preset, start=a.start, end=a.end,
                   workers=a.workers, audio=not a.no_audio, subtitles=subs, transparent=a.transparent,
-                  target=a.target, chapters=not a.no_chapters, scene=a.scene, time=a.time,
+                  target=a.target, chapters=not a.no_chapters, scene=a.scene, time=a.time, part=a.part,
                   progress=None if a.quiet else _bar)
     if not a.quiet:
         sys.stderr.write("\n")
     print(f"Wrote {path} in {time.time() - t0:.1f} s", file=sys.stderr)
+    return 0
+
+
+def cmd_join(a) -> int:
+    from .export import join
+    from .model.project import Project
+    proj = Project.load(a.project)
+    out = join(proj, a.parts, a.output, audio=not a.no_audio, chapters=not a.no_chapters,
+               subtitles=a.subtitles if a.subtitles is not None else False, start=a.start, end=a.end,
+               scene=a.scene)
+    print(f"Wrote {out} from {len(a.parts)} pieces", file=sys.stderr)
     return 0
 
 
@@ -161,28 +178,57 @@ def cmd_mcp(a) -> int:
     return 0
 
 
+def cmd_schema(a) -> int:
+    import json
+
+    from . import plugins, schema
+    plugins.load()
+    if a.validate:
+        bad = 0
+        for f in a.validate:
+            try:
+                data = json.loads(Path(f).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                print(f"{f}: cannot read: {exc}", file=sys.stderr)
+                bad += 1
+                continue
+            errors = schema.validate(data, strict=a.strict)
+            print(f"{f}: {'valid' if not errors else f'{len(errors)} problem(s)'}")
+            for e in errors[:50]:
+                print(f"  {e}")
+            bad += bool(errors)
+        return 1 if bad else 0
+    text = schema.dumps(schema.json_schema(strict=a.strict))
+    if a.output:
+        Path(a.output).write_text(text, encoding="utf-8")
+        print(f"Wrote {a.output}", file=sys.stderr)
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+def cmd_plugin(a) -> int:
+    from . import plugins
+    if a.action == "new":
+        from .scaffold import new_plugin
+        root = new_plugin(a.name, a.folder)
+        print(f"Wrote {root}. Install it with: pip install -e {root}")
+        return 0
+    print(plugins.describe())
+    return 0 if all(r["ok"] for r in plugins.info()) else 1
+
+
 def cmd_info(a) -> int:
-    import platform
-
-    import cv2
-    import numpy
-    import PIL
-
-    from .export import default_workers, find_ffmpeg
-    from .model import REGISTRY
-    try:
-        ff = find_ffmpeg()
-    except Exception as exc:
-        ff = f"missing ({exc})"
-    try:
-        import matplotlib
-        mpl = matplotlib.__version__
-    except Exception:
-        mpl = "not installed (Equation objects need it)"
-    print(f"SciView {__version__}\nPython {platform.python_version()} on {platform.platform()}")
-    print(f"numpy {numpy.__version__}, opencv {cv2.__version__}, pillow {PIL.__version__}, matplotlib {mpl}")
-    print(f"ffmpeg: {ff}\nrender workers: {default_workers()}")
-    print(f"object types ({len(REGISTRY)}): {', '.join(sorted(REGISTRY))}")
+    from .diagnostics import info_text, report
+    if a.report:
+        from .model.project import Project
+        proj = Project.load(a.report)
+        out = Path(a.output or "sciview-report.zip")
+        out.write_bytes(report(proj, include_assets=a.assets))
+        print(f"Wrote {out}: look through it, then attach it to an issue at "
+              f"https://github.com/OriolSansPlanell/SciView/issues", file=sys.stderr)
+        return 0
+    print(info_text())
     return 0
 
 
@@ -222,6 +268,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--time", type=float, help="for a still (.png output or --for poster): the moment to show")
     r.add_argument("--theme", help="apply a theme first (dark, light, contrast or a .sciview-theme.json)")
     r.add_argument("--no-chapters", action="store_true", help="no chapter markers from scenes")
+    r.add_argument("--part", metavar="I/N", help="render only piece I of N (video alone), e.g. on several "
+                                                "computers; put the pieces together with: sciview join")
     r.add_argument("--no-audio", action="store_true")
     r.add_argument("-q", "--quiet", action="store_true")
     r.set_defaults(func=cmd_render)
@@ -272,7 +320,35 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--no-save", action="store_true", help="file mode: do not save after each change")
     m.set_defaults(func=cmd_mcp)
 
-    i = sub.add_parser("info", help="versions, ffmpeg location and object types")
+    jn = sub.add_parser("join", help="join pieces rendered with render --part, adding sound and chapters")
+    jn.add_argument("project")
+    jn.add_argument("parts", nargs="+", help="the pieces, in order")
+    jn.add_argument("-o", "--output", required=True)
+    jn.add_argument("--subtitles", nargs="?", const="file", choices=["off", "file", "soft", "embed"])
+    jn.add_argument("--start", type=float, help="as given to render")
+    jn.add_argument("--end", type=float, help="as given to render")
+    jn.add_argument("--scene", help="as given to render")
+    jn.add_argument("--no-audio", action="store_true")
+    jn.add_argument("--no-chapters", action="store_true")
+    jn.set_defaults(func=cmd_join)
+
+    sc = sub.add_parser("schema", help="the JSON Schema of project files, or check files against it")
+    sc.add_argument("-o", "--output", help="write the schema to this file (default: print it)")
+    sc.add_argument("--validate", nargs="+", metavar="FILE", help="check project files against the schema")
+    sc.add_argument("--strict", action="store_true",
+                    help="also reject settings, properties and types this SciView does not know")
+    sc.set_defaults(func=cmd_schema)
+
+    pl = sub.add_parser("plugin", help="list installed plugins, or start a new one")
+    pl.add_argument("action", choices=["list", "new"], nargs="?", default="list")
+    pl.add_argument("name", nargs="?", help="for new: the plugin's name, e.g. spectroscopy")
+    pl.add_argument("--folder", default=".", help="for new: where to write it (default: here)")
+    pl.set_defaults(func=cmd_plugin)
+
+    i = sub.add_parser("info", help="versions, ffmpeg location, object types and plugins; or a bug report")
+    i.add_argument("--report", metavar="PROJECT", help="write a zip for a bug report about this film")
+    i.add_argument("-o", "--output", help="where to write the report (default: sciview-report.zip)")
+    i.add_argument("--assets", action="store_true", help="put the film's files in the report too")
     i.set_defaults(func=cmd_info)
     return p
 
@@ -290,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    except RuntimeError as exc:          # ExportError, ThemeError, AudioError, NarrationError ...
+    except (RuntimeError, OSError) as exc:   # ExportError, ThemeError, AudioError, a file that exists ...
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

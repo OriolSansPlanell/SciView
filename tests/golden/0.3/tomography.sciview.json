@@ -1,0 +1,415 @@
+{
+  "sciview": "1.0",
+  "settings": {
+    "title": "How a tomograph sees inside",
+    "author": "",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 22.0,
+    "background": "#03070e",
+    "background2": "#111a2c",
+    "background_style": "radial",
+    "stars": 0.2,
+    "vignette": 0.35,
+    "bloom": 0.7,
+    "font": "Poppins",
+    "audio": "",
+    "audio_offset": 0.0,
+    "audio_volume": 1.0
+  },
+  "palette": {
+    "teal": "#4fd1c5",
+    "gold": "#ffcf4a",
+    "amber": "#f5a23c",
+    "blue": "#6cb4fc",
+    "ice": "#a5e4fc",
+    "cream": "#f3ead8",
+    "red": "#ff6b6b",
+    "violet": "#c38cff",
+    "green": "#7ee08a",
+    "white": "#ffffff",
+    "gray": "#8b95a7",
+    "navy": "#10182a"
+  },
+  "camera": {
+    "props": {
+      "target": [
+        0,
+        0,
+        0
+      ],
+      "distance": 150,
+      "azimuth": -62,
+      "elevation": 24,
+      "fov": 30.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "keys": {
+      "azimuth": [
+        {
+          "t": 11.0,
+          "v": -62.0,
+          "ease": "smooth"
+        },
+        {
+          "t": 22.0,
+          "v": -10.0,
+          "ease": "in_out"
+        }
+      ]
+    }
+  },
+  "objects": [
+    {
+      "id": "title1",
+      "type": "title",
+      "name": "Title",
+      "props": {
+        "text": "How a tomograph sees inside",
+        "subtitle": "Projections, a sinogram, and the slice rebuilt"
+      },
+      "start": 0.2,
+      "end": 3.6,
+      "enter": {
+        "effect": "slide_up",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "image1",
+      "type": "image",
+      "name": "Sample slice",
+      "props": {
+        "image": "assets/slice.png",
+        "position": [
+          330.0,
+          520.0
+        ],
+        "width": 330.0,
+        "mask": "circle",
+        "border_color": "teal",
+        "border_width": 2.0
+      },
+      "keys": {
+        "rotation": [
+          {
+            "t": 4.0,
+            "v": 0.0,
+            "ease": "linear"
+          },
+          {
+            "t": 10.0,
+            "v": 180.0,
+            "ease": "linear"
+          }
+        ]
+      },
+      "start": 3.0,
+      "end": 11.0,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "text1",
+      "type": "text",
+      "name": "Sample label",
+      "props": {
+        "text": "the sample turns",
+        "position": [
+          330.0,
+          300.0
+        ],
+        "size": 22.0,
+        "color": "teal",
+        "align": "center"
+      },
+      "start": 3.0,
+      "end": 11.0,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "sinogram1",
+      "type": "sinogram",
+      "name": "Sinogram",
+      "props": {
+        "resolution": 160,
+        "position": [
+          960.0,
+          560.0
+        ],
+        "size": [
+          360.0,
+          360.0
+        ],
+        "profile": true
+      },
+      "keys": {
+        "progress": [
+          {
+            "t": 4.0,
+            "v": 0.0,
+            "ease": "linear"
+          },
+          {
+            "t": 10.0,
+            "v": 1.0,
+            "ease": "linear"
+          }
+        ]
+      },
+      "start": 3.4,
+      "end": 11.0,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "backprojection1",
+      "type": "backprojection",
+      "name": "Rebuilt slice",
+      "props": {
+        "sinogram": "sinogram1",
+        "position": [
+          1590.0,
+          560.0
+        ],
+        "size": [
+          360.0,
+          360.0
+        ]
+      },
+      "start": 3.8,
+      "end": 11.0,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "text2",
+      "type": "text",
+      "name": "Rebuilt label",
+      "props": {
+        "text": "filtered back-projection",
+        "position": [
+          1590.0,
+          330.0
+        ],
+        "size": 22.0,
+        "color": "gold",
+        "align": "center"
+      },
+      "start": 3.8,
+      "end": 11.0,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption1",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Each angle gives one projection: a row of the sinogram."
+      },
+      "start": 4.0,
+      "end": 7.5,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption2",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Smearing every row back across the slice, after a ramp filter, rebuilds it."
+      },
+      "start": 7.5,
+      "end": 11.0,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "volume1",
+      "type": "volume",
+      "name": "Scan (slices)",
+      "props": {
+        "data": "assets/sample.npy",
+        "size": 56.0,
+        "colormap": "ice",
+        "clear_below": 0.15
+      },
+      "keys": {
+        "slice_z": [
+          {
+            "t": 11.5,
+            "v": 0.05,
+            "ease": "smooth"
+          },
+          {
+            "t": 15.5,
+            "v": 0.95,
+            "ease": "in_out"
+          }
+        ]
+      },
+      "start": 11.2,
+      "end": 16.6,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "volume2",
+      "type": "volume",
+      "name": "Scan (surface)",
+      "props": {
+        "data": "assets/sample.npy",
+        "mode": "isosurface",
+        "size": 56.0
+      },
+      "keys": {
+        "threshold": [
+          {
+            "t": 17.5,
+            "v": 0.42,
+            "ease": "smooth"
+          },
+          {
+            "t": 20.5,
+            "v": 0.86,
+            "ease": "in_out"
+          }
+        ]
+      },
+      "start": 16.2,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "scalebar3d1",
+      "type": "scalebar3d",
+      "name": "Scale",
+      "props": {
+        "origin": [
+          -28.0,
+          -36.0,
+          -16.0
+        ],
+        "length": 20.0,
+        "unit": "0.5 mm"
+      },
+      "start": 11.6,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption3",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Stack the slices and you have the whole sample: sweep through it…"
+      },
+      "start": 11.4,
+      "end": 16.4,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption4",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "…or show one grey level as a surface: raise it to reveal the dense inclusion."
+      },
+      "start": 16.4,
+      "end": 21.8,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    }
+  ],
+  "template": {
+    "title": "Tomography",
+    "description": "A turning sample, its sinogram, the rebuilt slice, then the scanned volume.",
+    "order": 25,
+    "thumb_time": 8.5
+  }
+}

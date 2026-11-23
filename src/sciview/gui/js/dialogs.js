@@ -290,7 +290,13 @@ export function helpDialog() {
     body: el('div', {}, dl(keys, false), el('div', { class: 'section-title' }, 'Text markup (any text field)'), dl(markup, true),
       el('div', { class: 'section-title' }, 'Curves'),
       el('p', { class: 'lead' }, 'Curve expressions use x and the film time t: sin(x - 2*t) is a travelling wave. Functions: sin, cos, exp, log, sqrt, abs, gauss(x, mu, sigma), step, where, clip.'),
-      el('p', { class: 'lead' }, `SciView ${S.version}. Equations use matplotlib’s mathtext. Command line: sciview render film.sciview.json`)),
+      el('p', { class: 'lead' }, `SciView ${S.version}. Equations use matplotlib’s mathtext. Command line: sciview render film.sciview.json`),
+      el('div', { class: 'section-title' }, 'Something wrong?'),
+      el('p', { class: 'lead' }, 'Save a report with the film, what SciView finds wrong with it and the versions you use. Nothing is sent: look through the zip, then attach it to an issue on GitHub.'),
+      el('div', { class: 'report-actions' },
+        el('a', { class: 'btn', href: '/api/report', download: 'sciview-report.zip' }, 'Save a report for a bug'),
+        el('a', { class: 'btn', href: '/api/report?assets=1', download: 'sciview-report.zip', title: 'Also include the images, data and sound the film uses (up to 50 MB)' }, 'With the film’s files'),
+        el('a', { class: 'link', href: 'https://github.com/OriolSansPlanell/SciView/issues', target: '_blank', rel: 'noopener' }, 'Open an issue'))),
   });
 }
 

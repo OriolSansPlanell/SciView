@@ -61,6 +61,16 @@ The editor keeps the film in memory. Use **Open** to load the file again.
 **Where are my uploaded files?**
 In the `assets` folder next to the project file. Copy the project file and that folder together.
 
+**A plugin breaks SciView, or its objects are "missing"**
+`sciview plugin list` shows the plugins SciView found and the error of any that failed to load. Start with
+`SCIVIEW_NO_PLUGINS=1` to check whether a problem comes from a plugin. Objects of a plugin that is not
+installed are kept in the film but not drawn; install the plugin and they come back.
+
+**The editor answers "bad host" behind a proxy or in a cloud workspace**
+The editor only answers requests addressed to `localhost`. Set `SCIVIEW_ALLOWED_HOSTS` to the name the proxy
+uses (comma-separated for several). GitHub Codespaces is recognised by itself.
+
 **Reporting a bug**
-Run `sciview info` and include its output, the project file (and assets if you can) and what you expected, in
-an issue at https://github.com/OriolSansPlanell/SciView/issues.
+Save a report from the editor's help (<kbd>?</kbd>), or run `sciview info --report film.sciview.json`, and
+attach the zip with what you did and what you expected to an issue at
+https://github.com/OriolSansPlanell/SciView/issues. Nothing is sent by SciView itself.

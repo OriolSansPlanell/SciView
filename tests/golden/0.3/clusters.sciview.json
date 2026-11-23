@@ -1,0 +1,530 @@
+{
+  "sciview": "1.0",
+  "settings": {
+    "title": "Two signals, one plot",
+    "author": "",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 16.0,
+    "background": "#03070e",
+    "background2": "#111a2c",
+    "background_style": "radial",
+    "stars": 0.2,
+    "vignette": 0.35,
+    "bloom": 0.7,
+    "font": "Poppins",
+    "audio": "",
+    "audio_offset": 0.0,
+    "audio_volume": 1.0
+  },
+  "palette": {
+    "teal": "#4fd1c5",
+    "gold": "#ffcf4a",
+    "amber": "#f5a23c",
+    "blue": "#6cb4fc",
+    "ice": "#a5e4fc",
+    "cream": "#f3ead8",
+    "red": "#ff6b6b",
+    "violet": "#c38cff",
+    "green": "#7ee08a",
+    "white": "#ffffff",
+    "gray": "#8b95a7",
+    "navy": "#10182a"
+  },
+  "camera": {
+    "props": {
+      "target": [
+        0,
+        0,
+        0
+      ],
+      "distance": 150.0,
+      "azimuth": -60.0,
+      "elevation": 22.0,
+      "fov": 30.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "keys": {}
+  },
+  "objects": [
+    {
+      "id": "title1",
+      "type": "title",
+      "name": "Title",
+      "props": {
+        "text": "Both beams together",
+        "subtitle": "The joint (2D) histogram"
+      },
+      "start": 0.2,
+      "end": null,
+      "enter": {
+        "effect": "slide_up",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "image1",
+      "type": "image",
+      "name": "X-ray slice",
+      "props": {
+        "image": "assets/slice_xray.png",
+        "colormap": "ice",
+        "pixelated": true,
+        "position": [
+          330.0,
+          380.0
+        ],
+        "width": 300.0,
+        "mask": "circle",
+        "border_color": "blue",
+        "border_width": 2.0
+      },
+      "start": 0.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "text1",
+      "type": "text",
+      "name": "X-ray label",
+      "props": {
+        "text": "X-ray slice",
+        "position": [
+          330.0,
+          205.0
+        ],
+        "size": 22.0,
+        "color": "blue",
+        "align": "center"
+      },
+      "start": 0.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "image2",
+      "type": "image",
+      "name": "Neutron slice",
+      "props": {
+        "image": "assets/slice_neutron.png",
+        "colormap": "gold",
+        "pixelated": true,
+        "position": [
+          330.0,
+          790.0
+        ],
+        "width": 300.0,
+        "mask": "circle",
+        "border_color": "amber",
+        "border_width": 2.0
+      },
+      "start": 1.2,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "text2",
+      "type": "text",
+      "name": "Neutron label",
+      "props": {
+        "text": "Neutron slice",
+        "position": [
+          330.0,
+          615.0
+        ],
+        "size": 22.0,
+        "color": "amber",
+        "align": "center"
+      },
+      "start": 1.2,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "axes1",
+      "type": "axes",
+      "name": "Joint histogram",
+      "props": {
+        "position": [
+          900.0,
+          230.0
+        ],
+        "size": [
+          700.0,
+          640.0
+        ],
+        "x_range": [
+          0.0,
+          1.0
+        ],
+        "x_label": "x-ray gray value",
+        "y_label": "neutron gray value",
+        "x_ticks": 4,
+        "frame": "box"
+      },
+      "start": 2.0,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "scatter1",
+      "type": "scatter",
+      "name": "Voxels",
+      "props": {
+        "axes": "axes1",
+        "data": "assets/voxels.csv",
+        "x_column": "xray",
+        "y_column": "neutron",
+        "color": "cream",
+        "size": 2.6
+      },
+      "start": 3.0,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 3.0
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "histogram1",
+      "type": "histogram",
+      "name": "X-ray histogram",
+      "props": {
+        "axes": "axes1",
+        "data": "assets/voxels.csv",
+        "column": "xray",
+        "bins": 50,
+        "height": 0.18
+      },
+      "start": 7.0,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "histogram2",
+      "type": "histogram",
+      "name": "Neutron histogram",
+      "props": {
+        "axes": "axes1",
+        "data": "assets/voxels.csv",
+        "column": "neutron",
+        "bins": 50,
+        "orientation": "horizontal",
+        "height": 0.18,
+        "color": "amber"
+      },
+      "start": 7.6,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "guide1",
+      "type": "guide",
+      "name": "X-ray threshold",
+      "props": {
+        "axes": "axes1",
+        "value": 0.5,
+        "label": "x-ray threshold"
+      },
+      "keys": {
+        "value": [
+          {
+            "t": 10.0,
+            "v": 0.2,
+            "ease": "smooth"
+          },
+          {
+            "t": 11.5,
+            "v": 0.52,
+            "ease": "in_out"
+          }
+        ]
+      },
+      "start": 10.0,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "guide2",
+      "type": "guide",
+      "name": "Neutron threshold",
+      "props": {
+        "axes": "axes1",
+        "orientation": "horizontal",
+        "value": 0.5,
+        "label": "neutron threshold"
+      },
+      "start": 12.0,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "ellipse1",
+      "type": "ellipse",
+      "name": "Plastic",
+      "props": {
+        "center": [
+          0.18,
+          0.8
+        ],
+        "radii": [
+          0.12,
+          0.13
+        ],
+        "stroke_color": "teal",
+        "glow": 0.8,
+        "axes": "axes1"
+      },
+      "start": 13.0,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "ellipse2",
+      "type": "ellipse",
+      "name": "Aluminium",
+      "props": {
+        "center": [
+          0.25,
+          0.15
+        ],
+        "radii": [
+          0.12,
+          0.13
+        ],
+        "stroke_color": "gray",
+        "glow": 0.8,
+        "axes": "axes1"
+      },
+      "start": 13.0,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "ellipse3",
+      "type": "ellipse",
+      "name": "Lead",
+      "props": {
+        "center": [
+          0.82,
+          0.22
+        ],
+        "radii": [
+          0.12,
+          0.13
+        ],
+        "stroke_color": "red",
+        "glow": 0.8,
+        "axes": "axes1"
+      },
+      "start": 13.0,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "ellipse4",
+      "type": "ellipse",
+      "name": "Hydride",
+      "props": {
+        "center": [
+          0.78,
+          0.85
+        ],
+        "radii": [
+          0.12,
+          0.13
+        ],
+        "stroke_color": "violet",
+        "glow": 0.8,
+        "axes": "axes1"
+      },
+      "start": 13.0,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "legend1",
+      "type": "legend",
+      "name": "Legend",
+      "props": {
+        "position": [
+          1640.0,
+          700.0
+        ]
+      },
+      "start": 13.2,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption1",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Every voxel of the slice becomes a point: its x-ray value across, its neutron value up."
+      },
+      "start": 2.5,
+      "end": 7.0,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption2",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Each 1D histogram is this cloud seen from one side, where clusters overlap."
+      },
+      "start": 7.0,
+      "end": 12.0,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "caption3",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Two thresholds split the plane into four materials."
+      },
+      "start": 12.0,
+      "end": 15.8,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    }
+  ],
+  "template": {
+    "title": "Scatter and thresholds",
+    "description": "Two images, a joint scatter plot, marginal histograms and threshold lines.",
+    "order": 30,
+    "thumb_time": 14.5
+  }
+}

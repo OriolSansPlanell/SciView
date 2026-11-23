@@ -100,7 +100,7 @@ def test_unknown_things_become_warnings():
     data = {"sciview": "1.0", "settings": {"duration": 3, "bogus": 1},
             "objects": [{"type": "spaceship"}, {"type": "box", "props": {"wings": 2}}]}
     p = sv.Project.from_json(data)
-    assert len(p.objects) == 1
+    assert len(p.objects) == 2 and p.objects[0].TYPE == "spaceship"     # kept, not drawn
     issues = p.validate()
     assert any("spaceship" in i for i in issues)
     assert any("wings" in i for i in issues)

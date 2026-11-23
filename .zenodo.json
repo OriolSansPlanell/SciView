@@ -1,0 +1,14 @@
+{
+  "title": "SciView: scientific explainer videos from a visual editor or Python",
+  "description": "SciView makes scientific explainer videos: beams, samples, detectors, charts, equations and captions, timed and keyframed in a browser editor or from Python, with scenes, narration, themes and export for talks, posters, the web and social media.",
+  "upload_type": "software",
+  "creators": [
+    { "name": "Sans Planell, Oriol" }
+  ],
+  "license": "MIT",
+  "keywords": ["scientific visualization", "animation", "video", "science communication", "neutron imaging",
+               "tomography", "explainer"],
+  "related_identifiers": [
+    { "identifier": "https://github.com/OriolSansPlanell/SciView", "relation": "isSupplementTo", "scheme": "url" }
+  ]
+}

@@ -15,7 +15,7 @@ affiliations:
   # Replace with your institution before submission
   - name: Your institution, City, Country
     index: 1
-date: 20 November 2026
+date: 23 November 2026
 bibliography: paper.bib
 ---
 
@@ -31,7 +31,8 @@ produces the editor preview and the final video, so what the author sees is exac
 SciView is written in Python on NumPy [@harris2020array], OpenCV [@opencv] and Pillow [@pillow]. Frames are
 rendered as pure functions of time, which makes any instant reproducible on its own and lets exports run in
 parallel on all processor cores. Videos are encoded with FFmpeg [@ffmpeg] to MP4, WebM, ProRes, GIF or PNG
-sequences, with optional narration audio and subtitle files generated from the captions.
+sequences, with narration recorded in the editor, chapter markers, subtitle tracks, transparent video for
+compositing, and as a self-contained web page or a PowerPoint deck with one slide per scene.
 
 # Statement of need
 
@@ -60,9 +61,18 @@ remote analysis machine through an SSH tunnel. Project files are plain JSON that
 reviewed. Expressions in project files are parsed and validated rather than executed, so films can be shared
 safely. Captions can be exported as subtitles, which makes the resulting videos more accessible.
 
+Beyond imaging, SciView includes volumes with slice planes and isosurfaces, tomographic sinograms and
+back-projection that builds up angle by angle, molecules from PDB and XYZ files, ray optics through lenses and
+mirrors, charts with error bars, uncertainty bands and fitted curves, and properties driven by measured time
+series. Longer films are organised in scenes with transitions, and narration recorded in the browser can be
+turned into captions that follow the speaker's phrases. Films can be previewed and edited inside Jupyter
+notebooks, extended by plugins that add object types and templates, and built with the help of a local
+language model that works through the same checked operations as the editor.
+
 SciView grew out of the renderer written for two explainer films on neutron imaging, and its templates
-reproduce the main patterns of such films: an imaging beamline, a step-by-step quantitative analysis, a
-scatter plot with thresholds, animated equations, a 3D structure and a title card.
+reproduce the main patterns of such films: an imaging beamline, an explainer in scenes, a step-by-step
+quantitative analysis, tomography, a scatter plot with thresholds, animated equations, ray optics, a 3D
+structure and a title card.
 
 # Design
 
@@ -78,7 +88,13 @@ emit light into a separate buffer that is blurred at several scales and added ba
 keeps thin lines legible on dark backgrounds. Particles are accumulated into density maps and compressed with
 $1 - e^{-x}$, so dense beams saturate smoothly instead of clipping. 3D objects are projected by a pinhole
 camera and sorted back to front, and 2D overlays are positioned in pixels of the design frame, so a film can
-be exported at any resolution without changing its layout.
+be exported at any resolution without changing its layout. Objects that do not change between frames are
+cached as layers, which never changes a pixel but makes the preview interactive.
+
+The file format is versioned and documented by a JSON Schema. Readers keep the parts of a file they do not
+know, so films made with newer versions or with plugins survive being opened and saved by older ones, and the
+test suite loads the files of every release, compares rendered frames with references on all platforms, and
+fuzzes the loader and the expression parser.
 
 # Acknowledgements
 

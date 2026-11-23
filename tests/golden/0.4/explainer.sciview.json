@@ -1,0 +1,556 @@
+{
+  "sciview": "1.0",
+  "settings": {
+    "title": "Why neutrons see water",
+    "author": "",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 20.2,
+    "background": "#03070e",
+    "background2": "#111a2c",
+    "background_style": "radial",
+    "stars": 0.4,
+    "vignette": 0.35,
+    "bloom": 0.7,
+    "font": "Poppins",
+    "theme": "",
+    "logo": "",
+    "logo_position": "bottom-right",
+    "logo_size": 160.0,
+    "logo_margin": 40.0,
+    "logo_opacity": 0.9,
+    "logo_scenes": "all",
+    "audio": "",
+    "audio_offset": 0.0,
+    "audio_volume": 1.0,
+    "crop_x": -1.0
+  },
+  "palette": {
+    "teal": "#4fd1c5",
+    "gold": "#ffcf4a",
+    "amber": "#f5a23c",
+    "blue": "#6cb4fc",
+    "ice": "#a5e4fc",
+    "cream": "#f3ead8",
+    "red": "#ff6b6b",
+    "violet": "#c38cff",
+    "green": "#7ee08a",
+    "white": "#ffffff",
+    "gray": "#8b95a7",
+    "navy": "#10182a"
+  },
+  "camera": {
+    "props": {
+      "target": [
+        0,
+        0,
+        0
+      ],
+      "distance": 150.0,
+      "azimuth": -60.0,
+      "elevation": 22.0,
+      "fov": 30.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "keys": {}
+  },
+  "objects": [
+    {
+      "id": "title1",
+      "type": "title",
+      "name": "Title",
+      "props": {
+        "text": "Why neutrons see water",
+        "subtitle": "Imaging with neutrons in three steps",
+        "position": [
+          960.0,
+          470.0
+        ],
+        "title_size": 86.0,
+        "align": "center"
+      },
+      "start": 0.3,
+      "end": null,
+      "enter": {
+        "effect": "slide_up",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene1"
+    },
+    {
+      "id": "caption1",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Water inside a metal part is invisible to X-rays.",
+        "style": "box"
+      },
+      "start": 1.6,
+      "end": 5.6,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene1"
+    },
+    {
+      "id": "grid3d1",
+      "type": "grid3d",
+      "name": "Floor",
+      "props": {
+        "center": [
+          0.0,
+          0.0,
+          -16.0
+        ],
+        "size": [
+          220.0,
+          120.0
+        ],
+        "divisions": 22
+      },
+      "start": 0.0,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene2"
+    },
+    {
+      "id": "box1",
+      "type": "box",
+      "name": "Neutron source",
+      "props": {
+        "center": [
+          -75.0,
+          0.0,
+          0.0
+        ],
+        "size": [
+          18.0,
+          18.0,
+          18.0
+        ],
+        "edge_color": "gold",
+        "fill_color": "gold",
+        "label": "source",
+        "label_color": "gold",
+        "label_position": "below"
+      },
+      "start": 0.3,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene2"
+    },
+    {
+      "id": "cylinder1",
+      "type": "cylinder",
+      "name": "Sample",
+      "props": {
+        "height": 16.0,
+        "rings": 3,
+        "lines": 4,
+        "label": "metal part"
+      },
+      "start": 0.8,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene2"
+    },
+    {
+      "id": "screen1",
+      "type": "screen",
+      "name": "Detector",
+      "props": {
+        "center": [
+          34.0,
+          0.0,
+          0.0
+        ],
+        "size": [
+          22.0,
+          22.0
+        ],
+        "thickness": 3.0,
+        "image": "assets/radiograph.png",
+        "colormap": "gold",
+        "counts": 40.0,
+        "label": "detector",
+        "label_color": "teal"
+      },
+      "keys": {
+        "buildup": [
+          {
+            "t": 3.0,
+            "v": 0.0,
+            "ease": "linear"
+          },
+          {
+            "t": 8.5,
+            "v": 1.0,
+            "ease": "linear"
+          }
+        ]
+      },
+      "start": 1.2,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene2"
+    },
+    {
+      "id": "beam1",
+      "type": "beam",
+      "name": "Neutrons",
+      "props": {
+        "source": [
+          -66.0,
+          0.0,
+          0.0
+        ],
+        "target": [
+          32.0,
+          0.0,
+          0.0
+        ],
+        "source_radius": 2.5,
+        "target_radius": 9.0,
+        "rate": 260.0,
+        "speed": 34.0,
+        "streak": 5.0,
+        "scatter_fraction": 0.12,
+        "scatter_at": 0.67
+      },
+      "start": 1.6,
+      "end": null,
+      "enter": {
+        "effect": "none",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene2"
+    },
+    {
+      "id": "caption2",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "Neutrons cross the metal almost freely…",
+        "style": "box"
+      },
+      "start": 1.0,
+      "end": 4.6,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene2"
+    },
+    {
+      "id": "caption3",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "…but hydrogen in water scatters them, so water casts a shadow.",
+        "style": "box"
+      },
+      "start": 4.8,
+      "end": 8.8,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene2"
+    },
+    {
+      "id": "axes1",
+      "type": "axes",
+      "name": "Transmission",
+      "props": {
+        "position": [
+          330.0,
+          190.0
+        ],
+        "size": [
+          1000.0,
+          600.0
+        ],
+        "x_range": [
+          0.0,
+          5.0
+        ],
+        "y_range": [
+          0.0,
+          1.05
+        ],
+        "x_label": "water thickness (mm)",
+        "y_label": "transmission"
+      },
+      "start": 0.2,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene3"
+    },
+    {
+      "id": "curve1",
+      "type": "curve",
+      "name": "Beer-Lambert",
+      "props": {
+        "axes": "axes1",
+        "expression": "exp(-0.55*x)"
+      },
+      "start": 0.8,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene3"
+    },
+    {
+      "id": "marker1",
+      "type": "marker",
+      "name": "Here",
+      "props": {
+        "axes": "axes1",
+        "x": 0.5,
+        "follow": "exp(-0.55*x)",
+        "label": "T = {y:.2f}"
+      },
+      "keys": {
+        "x": [
+          {
+            "t": 2.0,
+            "v": 0.5,
+            "ease": "smooth"
+          },
+          {
+            "t": 5.0,
+            "v": 3.5,
+            "ease": "in_out"
+          }
+        ]
+      },
+      "start": 1.8,
+      "end": null,
+      "enter": {
+        "effect": "pop",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene3"
+    },
+    {
+      "id": "text1",
+      "type": "text",
+      "name": "Law",
+      "props": {
+        "text": "T = e^{-\\Sigma d}",
+        "position": [
+          1420.0,
+          300.0
+        ],
+        "size": 46.0,
+        "color": "gold"
+      },
+      "start": 2.4,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene3"
+    },
+    {
+      "id": "caption4",
+      "type": "caption",
+      "name": "Caption",
+      "props": {
+        "text": "The darker the shadow, the more water: neutron images can be measured, not just seen.",
+        "style": "box"
+      },
+      "start": 1.0,
+      "end": 6.8,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "scene": "scene3"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene1",
+      "name": "Question",
+      "duration": 6.0,
+      "transition": "cut",
+      "transition_duration": 1.0,
+      "notes": "Open with the question: metal hides water from X-rays, but not from neutrons."
+    },
+    {
+      "id": "scene2",
+      "name": "Method",
+      "duration": 9.0,
+      "transition": "crossfade",
+      "transition_duration": 1.0,
+      "notes": "The beam crosses the sample; each neutron that gets through lands on the detector.",
+      "camera": {
+        "props": {
+          "target": [
+            -20.0,
+            0.0,
+            0.0
+          ],
+          "distance": 150.0,
+          "azimuth": -60.0,
+          "elevation": 22.0,
+          "fov": 28.0,
+          "offset": [
+            0.0,
+            -10.0
+          ]
+        },
+        "keys": {
+          "azimuth": [
+            {
+              "t": 0.0,
+              "v": -128.0,
+              "ease": "smooth"
+            },
+            {
+              "t": 9.0,
+              "v": -108.0,
+              "ease": "in_out"
+            }
+          ],
+          "distance": [
+            {
+              "t": 0.0,
+              "v": 230.0,
+              "ease": "smooth"
+            },
+            {
+              "t": 9.0,
+              "v": 190.0,
+              "ease": "in_out"
+            }
+          ],
+          "elevation": [
+            {
+              "t": 0.0,
+              "v": 20.0,
+              "ease": "smooth"
+            },
+            {
+              "t": 9.0,
+              "v": 14.0,
+              "ease": "in_out"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "scene3",
+      "name": "Result",
+      "duration": 7.0,
+      "transition": "wipe_left",
+      "transition_duration": 0.8,
+      "notes": "The shadow is quantitative: transmission falls exponentially with water thickness.",
+      "camera": {
+        "props": {
+          "target": [
+            -20.0,
+            0.0,
+            0.0
+          ],
+          "distance": 190.0,
+          "azimuth": -108.0,
+          "elevation": 14.0,
+          "fov": 28.0,
+          "offset": [
+            0.0,
+            -10.0
+          ]
+        },
+        "keys": {}
+      }
+    }
+  ],
+  "template": {
+    "title": "Explainer in scenes",
+    "description": "Question, method and result as three scenes with transitions, chapters and speaker notes.",
+    "order": 15,
+    "thumb_time": 17.0
+  }
+}

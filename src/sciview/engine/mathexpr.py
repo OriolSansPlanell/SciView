@@ -7,6 +7,7 @@ Project files can come from other people, so expressions are parsed with
 from __future__ import annotations
 
 import ast
+import warnings
 from collections.abc import Callable
 from functools import lru_cache
 
@@ -46,9 +47,11 @@ def compile_expression(src: str, variables: tuple[str, ...] = ("x", "t")):
     if not text:
         raise ExpressionError("empty expression")
     try:
-        tree = ast.parse(text, mode="eval")
-    except SyntaxError as exc:
-        raise ExpressionError(f"cannot read expression {src!r}: {exc.msg}") from None
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)     # "is not callable; perhaps you missed a comma?"
+            tree = ast.parse(text, mode="eval")
+    except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
+        raise ExpressionError(f"cannot read expression {src!r}: {getattr(exc, 'msg', exc)}") from None
     allowed = set(variables) | set(FUNCTIONS) | set(CONSTANTS)
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED_NODES):
@@ -69,8 +72,21 @@ def evaluate(src: str, **variables) -> np.ndarray:
     ns = dict(FUNCTIONS)
     ns.update(CONSTANTS)
     ns.update({k: np.asarray(v, np.float64) if not np.isscalar(v) else float(v) for k, v in variables.items()})
-    with np.errstate(all="ignore"):
-        return eval(code, {"__builtins__": {}}, ns)  # noqa: S307 - AST validated above
+    try:
+        with np.errstate(all="ignore"):
+            out = eval(code, {"__builtins__": {}}, ns)  # noqa: S307 - AST validated above
+    except ExpressionError:
+        raise
+    except (ArithmeticError, TypeError, ValueError, IndexError, MemoryError, RecursionError) as exc:
+        raise ExpressionError(f"cannot evaluate {src!r}: {exc}") from None
+    if callable(out):
+        raise ExpressionError(f"{src.strip()!r} is a function: call it, e.g. {src.strip()}(x)")
+    try:
+        if not isinstance(out, (int, float, bool, np.ndarray, np.number, np.bool_)):
+            out = np.asarray(out, np.float64)
+    except (TypeError, ValueError):
+        raise ExpressionError(f"{src!r} does not give numbers") from None
+    return out
 
 
 def uses_time(src: str) -> bool:

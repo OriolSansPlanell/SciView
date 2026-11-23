@@ -87,8 +87,25 @@ the film settings first (positions are in those units).
 ## Speed
 
 Each frame is independent, so `render` uses all processor cores but one (`--workers` to change that). As a
-guide, a busy 1920 x 1080 frame takes 0.2 to 0.6 s on one core. A 30-second film at 30 fps on an 8-core laptop
-renders in about a minute or two. Draft at `--scale 0.5` first.
+guide, the templates take 30 to 180 ms per 1920 x 1080 frame on one core, so a 30-second film at 30 fps
+renders in about a minute on an 8-core laptop. Draft at `--scale 0.5` first.
+
+Big frames need memory: about 1 GB per render process at 4K and 3.4 GB at 8K. SciView therefore starts fewer
+processes when they would need more than 60 % of the computer's memory, and says so.
+
+### Rendering on several computers
+
+A long film at 4K can be shared between computers (or cluster nodes) and put together afterwards:
+
+```bash
+sciview render talk.sciview.json --for conference --part 1/4      # talk_conference.part1of4.mp4
+sciview render talk.sciview.json --for conference --part 2/4      # on another computer, and so on
+sciview join talk.sciview.json talk_conference.part*of4.mp4 -o talk_4k.mp4 --subtitles soft
+```
+
+Each piece holds only video; `join` puts them together without re-encoding and adds the sound, the chapter
+markers and the subtitles. Render every piece with the same options. In Python:
+`export(film, "p1.mp4", part=(1, 4))` and `sciview.export.join(film, pieces, "film.mp4")`.
 
 The editor's preview has three qualities: **Draft** (480 px), **Normal** (960 px) and **Full** (1920 px).
 During playback it switches to a faster quality automatically; pause to see the chosen quality.
@@ -155,6 +172,18 @@ instead, and projects whose files exceed 50 MB are left out of the page.
 the slide appears. The speaker notes hold the scene's notes, then what its voice clips say (their scripts),
 or its captions. Install the extra first: `pip install "sciview[pptx]"`. Rearrange or add slides as you like
 afterwards; the clips are ordinary videos.
+
+## ffmpeg and its licence
+
+SciView writes videos with [ffmpeg](https://ffmpeg.org), which it runs as a separate program: the one from the
+`imageio-ffmpeg` package by default, or the one on your PATH, or the one `SCIVIEW_FFMPEG` points to. SciView
+itself does not contain ffmpeg and stays under the MIT licence, and the licence of ffmpeg does not apply to
+the films you make.
+
+The usual ffmpeg builds include the x264 encoder and are then under the GPL. If your institution needs an
+LGPL-only ffmpeg, point `SCIVIEW_FFMPEG` to one: SciView notices that x264 is missing and encodes MP4 files with
+OpenH264, the operating system's encoder (macOS, Windows) or a graphics card's, and as a last resort with
+MPEG-4 part 2, which every player reads. ProRes, WebM (VP9), GIF and PNG do not depend on x264.
 
 ## Putting videos in slides
 

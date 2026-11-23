@@ -35,3 +35,6 @@ untitled.sciview.json
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Rendered by the docs workflow (tools/build_gallery.py)
+docs/gallery/

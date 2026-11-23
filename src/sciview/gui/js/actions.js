@@ -139,6 +139,34 @@ function shiftTiming(o, dt) {
 }
 
 /** Start each selected object ``step`` seconds after the previous one (earlier start first, ties in drawing order). */
+/** Move the selected clips (with their keyframes and group members) by dt seconds: Alt+arrow keys. */
+export function nudgeSelected(dt) {
+  const ids = topSelected().map((o) => o.id);
+  if (!ids.length) return false;
+  commit(() => {
+    for (const id of ids) {
+      const members = [objById(id), ...(isGroup(objById(id)) ? descendants(id) : [])].map((x) => objById(x.id));
+      const step = Math.max(dt, -Math.min(...members.map((x) => x.start || 0)));
+      for (const x of members) shiftTiming(x, step);
+    }
+  }, { source: 'timeline', coalesce: `nudge:${ids.join(',')}` });
+  return true;
+}
+
+/** Start ([) or end (]) the selected clips at the playhead. */
+export function trimSelected(edge) {
+  const ids = S.selection.filter((id) => id !== 'camera' && objById(id));
+  if (!ids.length) return false;
+  commit(() => {
+    for (const id of ids) {
+      const o = objById(id);
+      if (edge === 'start') o.start = Math.round(Math.min(S.time, o.end != null ? o.end - 0.05 : S.time) * 1000) / 1000;
+      else o.end = Math.round(Math.max(S.time, o.start + 0.05) * 1000) / 1000;
+    }
+  }, { source: 'timeline' });
+  return true;
+}
+
 export function stagger(step) {
   const objs = topSelected();
   if (objs.length < 2) { toast('Select two or more objects to stagger.'); return; }

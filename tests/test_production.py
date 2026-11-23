@@ -338,3 +338,59 @@ def test_editor_server_routes_for_production(film):
         srv.session.stop.set()
         srv.shutdown()
         srv.server_close()
+
+
+# ---------------------------------------------------------------------------------------------- pieces, encoders
+def test_render_in_pieces_and_join(film):
+    from sciview.cli import main
+    from sciview.export import join
+    one = export(film, film.base_dir / "whole.mp4", scale=0.1, workers=1, subtitles="soft")
+    pieces = [export(film, film.base_dir / f"p{i}.mp4", scale=0.1, workers=1, part=(i, 3), subtitles="soft")
+              for i in (1, 2, 3)]
+    assert not (film.base_dir / "p1.srt").exists()                     # pieces carry only video
+    assert [s["type"] for s in media_info(pieces[0])["streams"]] == ["video"]
+    out = join(film, pieces, film.base_dir / "joined.mp4", subtitles="soft")
+    a, b = media_info(one), media_info(out)
+    assert b["duration"] == pytest.approx(a["duration"], abs=0.08)
+    assert [s["type"] for s in b["streams"]] == [s["type"] for s in a["streams"]]       # video, sound, subtitles, chapters
+    assert [c["title"] for c in b["chapters"]] == ["Scene 1", "Results"]
+    assert (film.base_dir / "joined.srt").exists()
+    film.save()
+    assert main(["render", str(film.path), "--part", "2/2", "--scale", "0.1", "--workers", "1", "-q",
+                 "-o", str(film.base_dir / "c2.mp4")]) == 0
+    assert main(["render", str(film.path), "--part", "1/2", "--scale", "0.1", "--workers", "1", "-q",
+                 "-o", str(film.base_dir / "c1.mp4")]) == 0
+    assert main(["join", str(film.path), str(film.base_dir / "c1.mp4"), str(film.base_dir / "c2.mp4"),
+                 "-o", str(film.base_dir / "c.mp4")]) == 0
+    assert media_info(film.base_dir / "c.mp4")["duration"] == pytest.approx(a["duration"], abs=0.08)
+    with pytest.raises(ExportError, match="between 1 and 3"):
+        export(film, film.base_dir / "x.mp4", part="4/3")
+    with pytest.raises(ExportError, match="same format"):
+        join(film, [pieces[0]], film.base_dir / "x.webm")
+    with pytest.raises(ExportError, match="not found"):
+        join(film, [film.base_dir / "nope.mp4"], film.base_dir / "x.mp4")
+
+
+def test_encoder_fallback_without_libx264(film, monkeypatch):
+    from sciview import export as E
+    monkeypatch.setattr(E, "_encoder_cache", {})
+    monkeypatch.setattr(E, "_encoders", lambda ff: {"mpeg4", "h264_nvenc_missing"})
+    out = export(film, film.base_dir / "lgpl.mp4", scale=0.1, workers=1, end=1)
+    v = video(media_info(out))
+    assert v["codec"] == "mpeg4" and v["size"] == (192, 108)
+    assert E.h264_args("libopenh264", 18, "medium", (1920, 1080), 30)[:4] == ["-c:v", "libopenh264", "-b:v",
+                                                                             "6220k"]
+    monkeypatch.setattr(E, "_encoder_cache", {})
+    monkeypatch.undo()
+    assert E.video_encoder(E.find_ffmpeg()) == "libx264"
+
+
+def test_fewer_render_processes_when_frames_are_huge():
+    from sciview.export import default_workers, total_memory, workers_for
+    gb = 1024 ** 3
+    assert workers_for((1920, 1080), 8, memory=16 * gb) == 8
+    assert workers_for((3840, 2160), 8, memory=8 * gb) == 4             # about 1 GB each
+    assert workers_for((7680, 4320), 8, memory=8 * gb) == 1
+    assert workers_for((7680, 4320), None, memory=None) >= 1
+    assert workers_for((640, 360), None) == min(default_workers(), workers_for((640, 360), None))
+    assert total_memory() is None or total_memory() > 256 * 1024 ** 2

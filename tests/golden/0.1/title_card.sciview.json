@@ -1,0 +1,193 @@
+{
+  "sciview": "1.0",
+  "settings": {
+    "title": "Title card",
+    "author": "",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "duration": 7.0,
+    "background": "#03070e",
+    "background2": "#111a2c",
+    "background_style": "radial",
+    "stars": 0.6,
+    "vignette": 0.35,
+    "bloom": 0.7,
+    "font": "Poppins",
+    "audio": "",
+    "audio_offset": 0.0,
+    "audio_volume": 1.0
+  },
+  "palette": {
+    "teal": "#4fd1c5",
+    "gold": "#ffcf4a",
+    "amber": "#f5a23c",
+    "blue": "#6cb4fc",
+    "ice": "#a5e4fc",
+    "cream": "#f3ead8",
+    "red": "#ff6b6b",
+    "violet": "#c38cff",
+    "green": "#7ee08a",
+    "white": "#ffffff",
+    "gray": "#8b95a7",
+    "navy": "#10182a"
+  },
+  "camera": {
+    "props": {
+      "target": [
+        0,
+        0,
+        0
+      ],
+      "distance": 150.0,
+      "azimuth": -60.0,
+      "elevation": 22.0,
+      "fov": 30.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "keys": {}
+  },
+  "objects": [
+    {
+      "id": "text1",
+      "type": "text",
+      "name": "Title",
+      "props": {
+        "text": "Imaging water in soil",
+        "position": [
+          960.0,
+          440.0
+        ],
+        "size": 84.0,
+        "color": "gold",
+        "weight": "bold",
+        "align": "center",
+        "valign": "middle",
+        "glow": 0.25
+      },
+      "start": 0.4,
+      "end": null,
+      "enter": {
+        "effect": "slide_up",
+        "duration": 1.0
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "text2",
+      "type": "text",
+      "name": "Subtitle",
+      "props": {
+        "text": "Neutron radiography of a living root system",
+        "position": [
+          960.0,
+          545.0
+        ],
+        "size": 34.0,
+        "align": "center",
+        "valign": "middle"
+      },
+      "start": 1.2,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "arrow1",
+      "type": "arrow",
+      "name": "Rule",
+      "props": {
+        "tail": [
+          860.0,
+          610.0
+        ],
+        "tip": [
+          1060.0,
+          610.0
+        ],
+        "color": "teal",
+        "width": 2.5,
+        "heads": "none"
+      },
+      "start": 1.8,
+      "end": null,
+      "enter": {
+        "effect": "draw",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "text3",
+      "type": "text",
+      "name": "Authors",
+      "props": {
+        "text": "A. Author, B. Author and C. Author",
+        "position": [
+          960.0,
+          680.0
+        ],
+        "size": 26.0,
+        "align": "center",
+        "valign": "middle"
+      },
+      "start": 2.4,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    },
+    {
+      "id": "text4",
+      "type": "text",
+      "name": "Affiliation",
+      "props": {
+        "text": "Your institute, your city",
+        "position": [
+          960.0,
+          724.0
+        ],
+        "size": 22.0,
+        "color": "gray",
+        "align": "center",
+        "valign": "middle"
+      },
+      "start": 2.6,
+      "end": null,
+      "enter": {
+        "effect": "fade",
+        "duration": 0.6
+      },
+      "exit": {
+        "effect": "fade",
+        "duration": 0.6
+      }
+    }
+  ],
+  "template": {
+    "title": "Title card",
+    "description": "Title, subtitle, authors and affiliation for the start of a talk.",
+    "order": 60,
+    "thumb_time": 5.0
+  }
+}

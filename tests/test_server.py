@@ -206,3 +206,26 @@ def test_export_job(server, has_ffmpeg):
     assert st["state"] == "done", st
     data = call(base + "/api/download?path=out.mp4", raw=True)
     assert len(data) > 1000
+
+
+def test_host_names_for_codespaces_and_proxies(tmp_project, monkeypatch):
+    monkeypatch.setenv("CODESPACE_NAME", "solid-train-x7")
+    monkeypatch.setenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
+    monkeypatch.setenv("SCIVIEW_ALLOWED_HOSTS", "lab-proxy.example.org, other.example")
+    srv = make_server(tmp_project, tmp_project.base_dir, port=0)
+    threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+    port = srv.server_address[1]
+    base = f"http://127.0.0.1:{port}"
+    try:
+        for host, ok in ((f"solid-train-x7-{port}.app.github.dev", True), ("lab-proxy.example.org", True),
+                         ("evil.example", False), (f"other-{port}.app.github.dev", False)):
+            req = urllib.request.Request(base + "/api/state", headers={"Host": host})
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    assert ok and r.status == 200, host
+            except urllib.error.HTTPError as exc:
+                assert not ok and exc.code == 403, host
+    finally:
+        srv.session.stop.set()
+        srv.shutdown()
+        srv.server_close()
