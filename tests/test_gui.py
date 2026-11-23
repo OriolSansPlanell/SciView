@@ -575,7 +575,7 @@ def test_scenes_strip_switching_inspector_and_undo(open_editor, tmp_path):
 
 
 def test_export_presets_crop_and_guides(open_editor, tmp_path, has_ffmpeg):
-    import subprocess
+    from _media import media_info, video
     p = scenes_project(tmp_path)
     for sc in p.scenes:
         sc.duration = 1
@@ -594,10 +594,8 @@ def test_export_presets_crop_and_guides(open_editor, tmp_path, has_ffmpeg):
     page.locator(".modal .btn.primary", has_text="Export").click()
     page.wait_for_selector(".export-status >> text=Exported", timeout=60000)
     out = tmp_path / "talk_vertical.mp4"
-    v = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-show_chapters", "-of", "json",
-                                   str(out)], capture_output=True, text=True).stdout)
-    video = next(s for s in v["streams"] if s["codec_type"] == "video")
-    assert (video["width"], video["height"]) == (270, 480) and len(v["chapters"]) == 2
+    info = media_info(out)
+    assert video(info)["size"] == (270, 480) and len(info["chapters"]) == 2
     page.locator(".preset", has_text="Vertical").click()                         # off again: film sizes
     assert "1920 × 1080" in size.locator("option:checked").inner_text()
     page.keyboard.press("Escape")
