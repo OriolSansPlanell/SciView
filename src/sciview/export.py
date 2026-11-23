@@ -171,6 +171,9 @@ def video_encoder(ffmpeg: str) -> str:
     """The H.264 encoder this ffmpeg can use (``mpeg4`` when it has none that works)."""
     if ffmpeg not in _encoder_cache:
         have = _encoders(ffmpeg)
+        if not have:                    # cannot ask this ffmpeg: assume the usual build
+            _encoder_cache[ffmpeg] = "libx264"
+            return "libx264"
         pick = "mpeg4"
         for name in H264_ENCODERS:
             if name in have and (name == "libx264" or _encoder_works(ffmpeg, name)):
