@@ -17,7 +17,9 @@ The preview is plain HTML with the frames inside, so it plays without a running 
 notebook (and in the HTML or PDF you export from it). Keep it short and small: every frame is stored, up to
 600 of them. Chapter buttons under the scrubber jump to the scenes.
 
-One frame as a picture: `sciview.jupyter.Still(film, 4.5)`, or `PIL.Image.fromarray(film.frame(4.5, 0.5))`.
+One frame as a picture: `sciview.jupyter.still(film, 4.5)` (a JPEG, so a notebook can hold many of them;
+`Still(film, 4.5)` gives a PNG), or `PIL.Image.fromarray(film.frame(4.5, 0.5))`. The preview's frames are JPEGs
+too, and it shows its first frame even where scripts do not run, such as GitHub's notebook viewer.
 
 ## The editor inside the notebook
 
@@ -49,3 +51,16 @@ or set `SCIVIEW_ALLOWED_HOSTS` to the name of the proxy in front of it.
 ```
 
 `film` is a variable holding a film, or the path of a `.sciview.json` file.
+
+## Example notebooks
+
+[examples/notebooks](https://github.com/OriolSansPlanell/SciView/tree/main/examples/notebooks) holds four complete
+workflows, each from the data to a rendered film, with a still of every scene as it is built:
+
+* **Tomography**: radiographs of a sandstone core, sinograms, filtered back-projection, segmentation, porosity.
+* **Fourier analysis**: a noisy vibration signal, its spectrum, peak detection, a fit of three tones, filtering.
+* **Neutron diffraction**: a two-phase steel, its powder pattern and a staged Rietveld refinement.
+* **A tour of SciView**: one scene per family of objects, then checks, themes and every export format.
+
+The data are simulated inside each notebook, so they run anywhere; each says which cell to replace to use your
+own data. `python tools/run_notebooks.py` runs them all without opening Jupyter.

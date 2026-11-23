@@ -80,3 +80,12 @@ def test_the_sciview_magic(film, tmp_path):
         magic("preview n")
     with pytest.raises(ValueError, match="usage"):
         magic("dance film")
+
+
+def test_jpeg_stills_and_a_first_frame_without_scripts(film):
+    s = jupyter.still(film, 1.0, 0.1)
+    assert s._repr_jpeg_()[:2] == b"\xff\xd8" and s._repr_png_() is None
+    with pytest.raises(ValueError):
+        jupyter.Still(film, 1.0, 0.1, fmt="gif")
+    html = film.preview(fps=2, scale=0.1)._repr_html_()
+    assert 'src="data:image/jpeg;base64,/9j/' in html            # shown even where scripts do not run

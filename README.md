@@ -108,7 +108,9 @@ film.render("beer_lambert.mp4")          # or film.still(4.0, "frame.png", scale
 ```
 
 In a Jupyter notebook, `film.preview()` shows the film with a scrubber, and `sciview.jupyter.edit(film)` opens the
-editor inside the notebook. More in [examples/](https://github.com/OriolSansPlanell/SciView/tree/main/examples/) and the [Python guide](https://github.com/OriolSansPlanell/SciView/blob/main/docs/python-api.md).
+editor inside the notebook. The [example notebooks](https://github.com/OriolSansPlanell/SciView/tree/main/examples/notebooks)
+go from data to film step by step: a tomography with segmentation, a Fourier analysis, a neutron diffraction
+experiment with Rietveld refinement, and a tour of every feature. More in the [Python guide](https://github.com/OriolSansPlanell/SciView/blob/main/docs/python-api.md).
 
 ## Command line
 

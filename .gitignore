@@ -27,6 +27,9 @@ untitled.sciview.json
 *.sciview.json.tmp
 /assets/
 
+# Films written by the example notebooks
+examples/notebooks/films/
+
 # Keep the README animation
 !docs/images/*.gif
 
