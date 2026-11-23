@@ -394,3 +394,9 @@ def test_fewer_render_processes_when_frames_are_huge():
     assert workers_for((7680, 4320), None, memory=None) >= 1
     assert workers_for((640, 360), None) == min(default_workers(), workers_for((640, 360), None))
     assert total_memory() is None or total_memory() > 256 * 1024 ** 2
+
+
+def test_an_ffmpeg_that_cannot_be_asked_is_assumed_to_have_libx264(monkeypatch):
+    from sciview import export as E
+    monkeypatch.setattr(E, "_encoder_cache", {})
+    assert E.video_encoder("/nonexistent/ffmpeg") == "libx264"
