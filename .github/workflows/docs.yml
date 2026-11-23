@@ -1,11 +1,12 @@
 name: Documentation
 
-# Builds the MkDocs site with a gallery of every template rendered, and publishes it on GitHub Pages.
-# One-time setup: Settings > Pages > Source: "GitHub Actions".
+# Builds the MkDocs site with a gallery of every template rendered, and publishes it on GitHub Pages,
+# for every release tag (and by hand from the Actions tab).
+# One-time setup: Settings > Pages > Build and deployment > Source: "GitHub Actions".
 
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
